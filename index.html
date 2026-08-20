@@ -6,6 +6,7 @@
     <title>특수교육행정 시뮬레이터 포털</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         body { font-family: 'Noto Sans KR', sans-serif; }
         /* Iframe을 숨기거나 보이게 하는 설정 (데이터 날아감 방지) */
@@ -22,41 +23,47 @@
         <nav class="flex gap-2">
             <!-- 버튼 클릭 시 changeTab 함수 실행 -->
             <button onclick="changeTab('v21')" id="tab-v21" class="tab-btn px-4 py-2 rounded-lg text-sm font-bold bg-indigo-600 text-white shadow-sm transition-all">
-                개별 배치 시뮬레이터 (V21)
+                개별 배치 (V21)
             </button>
             <button onclick="changeTab('c5')" id="tab-c5" class="tab-btn px-4 py-2 rounded-lg text-sm font-bold text-slate-300 hover:bg-slate-700 transition-all">
-                신증설 시뮬레이터 (C5)
+                신증설 시뮬 (C5)
             </button>
             <button onclick="changeTab('dist')" id="tab-dist" class="tab-btn px-4 py-2 rounded-lg text-sm font-bold text-slate-300 hover:bg-slate-700 transition-all">
                 거리 계산 앱
             </button>
+            <button onclick="changeTab('download')" id="tab-download" class="tab-btn px-4 py-2 rounded-lg text-sm font-bold text-slate-300 hover:bg-slate-700 transition-all flex items-center gap-1">
+                <i class="fa-solid fa-cloud-arrow-down"></i> 양식 다운로드
+            </button>
         </nav>
     </header>
 
-    <!-- 앱 화면들 (display:none 으로 숨겨두었다가 탭 클릭시 보여줌 -> 탭을 바꿔도 작업 내용이 날아가지 않음!) -->
+    <!-- 앱 화면들 (display:none 으로 숨겨두었다가 탭 클릭시 보여줌) -->
     <main>
         <iframe src="v21.html" id="frame-v21" class="app-frame active"></iframe>
         <iframe src="c5.html" id="frame-c5" class="app-frame"></iframe>
-        <!-- 주소 끝에 /?embed=true 를 추가하여 오류 방지 및 헤더 숨김 처리 -->
         <iframe src="https://school-distance-finder-hgmgxrr5yjifbggyjt9vdt.streamlit.app/?embed=true" id="frame-dist" class="app-frame"></iframe>
+        <iframe src="download.html" id="frame-download" class="app-frame"></iframe>
     </main>
 
     <script>
         function changeTab(targetId) {
             // 1. 모든 탭 버튼 색상 초기화
             document.querySelectorAll('.tab-btn').forEach(btn => {
-                btn.className = "tab-btn px-4 py-2 rounded-lg text-sm font-bold text-slate-300 hover:bg-slate-700 transition-all";
+                btn.className = "tab-btn px-4 py-2 rounded-lg text-sm font-bold text-slate-300 hover:bg-slate-700 transition-all flex items-center gap-1";
             });
-            // 2. 선택된 탭 버튼 하이라이트 (색상)
+            
+            // 2. 선택된 탭 버튼 하이라이트 (기능별로 색상 구분)
             const activeBtn = document.getElementById('tab-' + targetId);
-            if (targetId === 'v21') activeBtn.className = "tab-btn px-4 py-2 rounded-lg text-sm font-bold bg-indigo-600 text-white shadow-sm transition-all";
-            if (targetId === 'c5') activeBtn.className = "tab-btn px-4 py-2 rounded-lg text-sm font-bold bg-teal-600 text-white shadow-sm transition-all";
-            if (targetId === 'dist') activeBtn.className = "tab-btn px-4 py-2 rounded-lg text-sm font-bold bg-amber-600 text-white shadow-sm transition-all";
+            if (targetId === 'v21') activeBtn.className = "tab-btn px-4 py-2 rounded-lg text-sm font-bold bg-indigo-600 text-white shadow-sm transition-all flex items-center gap-1";
+            if (targetId === 'c5') activeBtn.className = "tab-btn px-4 py-2 rounded-lg text-sm font-bold bg-teal-600 text-white shadow-sm transition-all flex items-center gap-1";
+            if (targetId === 'dist') activeBtn.className = "tab-btn px-4 py-2 rounded-lg text-sm font-bold bg-amber-600 text-white shadow-sm transition-all flex items-center gap-1";
+            if (targetId === 'download') activeBtn.className = "tab-btn px-4 py-2 rounded-lg text-sm font-bold bg-rose-600 text-white shadow-sm transition-all flex items-center gap-1";
 
             // 3. 모든 iframe 숨기기
             document.querySelectorAll('.app-frame').forEach(frame => {
                 frame.classList.remove('active');
             });
+            
             // 4. 선택된 iframe만 보여주기
             document.getElementById('frame-' + targetId).classList.add('active');
         }
