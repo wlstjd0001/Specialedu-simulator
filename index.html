@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>특수교육행정 시뮬레이터 포털</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Noto Sans KR', sans-serif; }
+        /* Iframe을 숨기거나 보이게 하는 설정 (데이터 날아감 방지) */
+        .app-frame { display: none; width: 100%; height: calc(100vh - 60px); border: none; }
+        .app-frame.active { display: block; }
+    </style>
+</head>
+<body class="overflow-hidden bg-slate-800">
+    <!-- 상단 통합 메뉴바 -->
+    <header class="h-[60px] bg-slate-900 flex items-center px-6 shadow-md border-b border-slate-700">
+        <div class="text-white font-black text-lg mr-8 flex items-center gap-2">
+            📊 특수교육 통합 시뮬레이터
+        </div>
+        <nav class="flex gap-2">
+            <!-- 버튼 클릭 시 changeTab 함수 실행 -->
+            <button onclick="changeTab('v21')" id="tab-v21" class="tab-btn px-4 py-2 rounded-lg text-sm font-bold bg-indigo-600 text-white shadow-sm transition-all">
+                개별 배치 시뮬레이터 (V21)
+            </button>
+            <button onclick="changeTab('c5')" id="tab-c5" class="tab-btn px-4 py-2 rounded-lg text-sm font-bold text-slate-300 hover:bg-slate-700 transition-all">
+                신증설 시뮬레이터 (C5)
+            </button>
+            <button onclick="changeTab('dist')" id="tab-dist" class="tab-btn px-4 py-2 rounded-lg text-sm font-bold text-slate-300 hover:bg-slate-700 transition-all">
+                거리 계산 앱
+            </button>
+        </nav>
+    </header>
+
+    <!-- 앱 화면들 (display:none 으로 숨겨두었다가 탭 클릭시 보여줌 -> 탭을 바꿔도 작업 내용이 날아가지 않음!) -->
+    <main>
+        <iframe src="v21.html" id="frame-v21" class="app-frame active"></iframe>
+        <iframe src="c5.html" id="frame-c5" class="app-frame"></iframe>
+        <!-- 주소 끝에 /?embed=true 를 추가하여 오류 방지 및 헤더 숨김 처리 -->
+        <iframe src="https://school-distance-finder-hgmgxrr5yjifbggyjt9vdt.streamlit.app/?embed=true" id="frame-dist" class="app-frame"></iframe>
+    </main>
+
+    <script>
+        function changeTab(targetId) {
+            // 1. 모든 탭 버튼 색상 초기화
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.className = "tab-btn px-4 py-2 rounded-lg text-sm font-bold text-slate-300 hover:bg-slate-700 transition-all";
+            });
+            // 2. 선택된 탭 버튼 하이라이트 (색상)
+            const activeBtn = document.getElementById('tab-' + targetId);
+            if (targetId === 'v21') activeBtn.className = "tab-btn px-4 py-2 rounded-lg text-sm font-bold bg-indigo-600 text-white shadow-sm transition-all";
+            if (targetId === 'c5') activeBtn.className = "tab-btn px-4 py-2 rounded-lg text-sm font-bold bg-teal-600 text-white shadow-sm transition-all";
+            if (targetId === 'dist') activeBtn.className = "tab-btn px-4 py-2 rounded-lg text-sm font-bold bg-amber-600 text-white shadow-sm transition-all";
+
+            // 3. 모든 iframe 숨기기
+            document.querySelectorAll('.app-frame').forEach(frame => {
+                frame.classList.remove('active');
+            });
+            // 4. 선택된 iframe만 보여주기
+            document.getElementById('frame-' + targetId).classList.add('active');
+        }
+    </script>
+</body>
+</html>
