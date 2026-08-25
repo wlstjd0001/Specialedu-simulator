@@ -1,0 +1,1522 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>특수교육대상자 배치 시뮬레이터 V22</title>
+    <!-- Vue.js 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- PapaParse for CSV parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Noto Sans KR', sans-serif; background-color: #f8fafc; }
+        [v-cloak] { display: none !important; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    </style>
+</head>
+<body class="text-slate-800 h-screen overflow-hidden flex flex-col">
+    <div id="app" v-cloak class="h-full flex flex-col">
+        <!-- Header -->
+        <header class="bg-white shadow-sm border-b border-slate-200 z-20 shrink-0">
+            <div class="px-6 py-3 flex justify-between items-center">
+                <div class="flex items-center gap-3">
+                    <div class="bg-indigo-600 text-white p-2.5 rounded-xl shadow-sm">
+                        <i class="fa-solid fa-users-viewfinder text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-black text-slate-800 leading-tight">특수교육대상자 배치 시뮬레이터 V22</h1>
+                    </div>
+                </div>
+                
+                <!-- Scenario Controls & Undo/Redo -->
+                <div class="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200" v-if="dataLoaded">
+                    
+                    <!-- Undo / Redo Buttons -->
+                    <div class="flex items-center bg-white rounded-lg border border-slate-200 shadow-sm p-0.5">
+                        <button @click="undo" :disabled="!canUndo" :class="canUndo ? 'text-slate-700 hover:bg-slate-100 hover:text-indigo-600' : 'text-slate-300 cursor-not-allowed'" class="px-2.5 py-1 rounded-md text-sm transition" title="실행 취소 (뒤로 가기)">
+                            <i class="fa-solid fa-rotate-left"></i>
+                        </button>
+                        <div class="w-px h-4 bg-slate-200 mx-0.5"></div>
+                        <button @click="redo" :disabled="!canRedo" :class="canRedo ? 'text-slate-700 hover:bg-slate-100 hover:text-indigo-600' : 'text-slate-300 cursor-not-allowed'" class="px-2.5 py-1 rounded-md text-sm transition" title="다시 실행 (앞으로 가기)">
+                            <i class="fa-solid fa-rotate-right"></i>
+                        </button>
+                    </div>
+
+                    <div class="h-5 w-px bg-slate-300 mx-1"></div>
+
+                    <div class="flex items-center">
+                        <span class="text-[11px] font-bold text-slate-500 mr-2">시나리오 (내부저장)</span>
+                        <select v-model="currentScenarioId" @change="loadScenario" class="border border-slate-300 rounded-lg text-xs py-1 px-2 focus:ring-2 focus:ring-indigo-500 outline-none w-56 bg-white font-bold text-indigo-700 shadow-sm cursor-pointer">
+                            <option v-for="sc in scenarios" :key="sc.id" :value="sc.id">{{ sc.name }}</option>
+                        </select>
+                        <button @click="saveNewScenario" class="ml-1 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-2.5 py-1 rounded-lg text-xs font-bold transition shadow-sm" title="현재 상태를 새로운 탭으로 기억합니다">
+                            <i class="fa-solid fa-floppy-disk"></i> 저장
+                        </button>
+                    </div>
+                    
+                    <div class="h-5 w-px bg-slate-300 mx-1"></div>
+                    
+                    <button @click="resetToDefault" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-2.5 py-1 rounded-lg text-xs font-bold transition shadow-sm" title="현재 작업을 버리고 '기본안1(최근거리교)' 기준으로 초기화합니다">
+                        <i class="fa-solid fa-rotate-right"></i> 초기화
+                    </button>
+                    
+                    <div class="h-5 w-px bg-slate-300 mx-1"></div>
+
+                    <label class="bg-slate-200 text-slate-700 hover:bg-slate-300 px-3 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer transition flex items-center gap-1 shadow-sm">
+                        <i class="fa-solid fa-folder-open"></i> 백업 열기
+                        <input type="file" accept=".csv" @change="loadBackupCSV" class="hidden">
+                    </label>
+                    <button @click="downloadCurrentScenario" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold transition shadow-sm flex items-center gap-1">
+                        <i class="fa-solid fa-download"></i> 현재 상태 다운로드
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="flex-1 flex overflow-hidden">
+            <!-- Sidebar -->
+            <aside class="w-80 bg-white shadow-lg z-10 flex flex-col overflow-y-auto custom-scrollbar shrink-0 p-5 border-r border-slate-200">
+                <!-- School Level Selection -->
+                <div class="mb-5 pb-5 border-b border-slate-100">
+                    <h2 class="font-black text-slate-700 text-sm mb-2 flex items-center"><i class="fa-solid fa-school-flag text-indigo-500 mr-2"></i>시뮬레이션 학교급 선택</h2>
+                    <select v-model="selectedSchoolLevel" class="w-full border border-slate-300 rounded-xl p-2.5 text-xs font-bold bg-indigo-50/50 text-indigo-900 focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm">
+                        <option value="전체">전체 (모든 학교급)</option>
+                        <option value="초등학교">초등학교</option>
+                        <option value="중학교">중학교</option>
+                        <option value="고등학교">고등학교</option>
+                        <option value="유치원">유치원</option>
+                    </select>
+                </div>
+
+                <!-- File Uploads -->
+                <div class="mb-6 pb-5 border-b border-slate-100">
+                    <h2 class="font-black text-slate-700 text-sm mb-3 flex items-center"><i class="fa-solid fa-file-arrow-up text-indigo-500 mr-2"></i>데이터 설정</h2>
+                    <div class="mb-3">
+                        <label class="block text-[11px] font-bold text-slate-600 mb-1 flex items-center gap-1">
+                            1. 학교 T/O 데이터 
+                            <span v-if="rawSchools.length > 0" class="text-emerald-600 ml-1"><i class="fa-solid fa-circle-check"></i> 로드 완료</span>
+                            <span v-else class="text-rose-500 ml-1"><i class="fa-solid fa-triangle-exclamation"></i> 미등록 (필수)</span>
+                        </label>
+                        <!-- 식별을 위해 id="schoolFileInput" 추가 -->
+                        <input type="file" id="schoolFileInput" accept=".csv" @change="e => handleFileUpload(e, 'schools')" class="block w-full text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:font-bold cursor-pointer border border-slate-200 rounded-lg p-1 transition-colors" :class="rawSchools.length === 0 ? 'bg-rose-50/30 file:bg-rose-100 file:text-rose-700 ring-2 ring-rose-400' : 'bg-slate-50 file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300'" title="새로운 파일로 덮어쓰려면 업로드하세요">
+                        <p class="text-[9px] mt-1" :class="rawSchools.length === 0 ? 'text-rose-500 font-bold' : 'text-slate-400'">
+                            <span v-if="rawSchools.length === 0"><i class="fa-solid fa-circle-exclamation"></i> 학교 TO.csv 자동 로드 실패. 직접 업로드해주세요.</span>
+                            <span v-else>* 기본 양식이 자동 로드되었습니다. 변경 필요시 업로드하세요.</span>
+                        </p>
+                    </div>
+                    <div class="mb-3">
+                        <label class="block text-[11px] font-bold text-slate-600 mb-1 flex items-center gap-1">
+                            2. 입학 접수대장 파일
+                            <span v-if="rawStudents.length > 0" class="text-emerald-600 ml-1"><i class="fa-solid fa-circle-check"></i> 로드 완료</span>
+                            <span v-else class="text-rose-500 ml-1"><i class="fa-solid fa-triangle-exclamation"></i> 미등록 (필수)</span>
+                        </label>
+                        <input type="file" accept=".csv" @change="e => handleFileUpload(e, 'students')" class="block w-full text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:font-bold cursor-pointer border border-slate-200 rounded-lg p-1 transition-colors" :class="rawSchools.length > 0 && rawStudents.length === 0 ? 'bg-emerald-50/30 file:bg-emerald-100 file:text-emerald-700 ring-2 ring-emerald-400' : 'bg-slate-50 file:bg-slate-200 file:text-slate-700 hover:file:bg-slate-300'">
+                    </div>
+                    <div class="flex items-center justify-between bg-slate-50 p-2 rounded-lg border border-slate-200 mt-2">
+                        <span class="text-[10px] text-slate-500 font-bold">인코딩 (맥OS는 UTF-8)</span>
+                        <select v-model="csvEncoding" class="text-[10px] border border-slate-300 rounded p-1 font-bold bg-white">
+                            <option value="EUC-KR">EUC-KR (기본)</option>
+                            <option value="UTF-8">UTF-8</option>
+                        </select>
+                    </div>
+                    <!-- 신설교 추가 버튼 -->
+                    <button v-if="dataLoaded" @click="openNewSchoolModal" class="w-full mt-4 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-2 rounded-lg text-xs font-bold transition shadow-sm border border-indigo-200 flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-plus"></i> 가상 신설교 추가
+                    </button>
+                </div>
+
+                <!-- Capacity Limits -->
+                <div class="mb-6">
+                    <h2 class="font-black text-slate-700 text-sm mb-2 flex items-center"><i class="fa-solid fa-sliders text-indigo-500 mr-2"></i>학급당 정원 기준 (진단용)</h2>
+                    <div class="grid grid-cols-2 gap-2.5 mb-2">
+                        <div v-for="(limit, level) in capacityLimits" :key="level" class="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                            <label class="block text-[11px] font-bold text-slate-500 mb-1">{{ level }}</label>
+                            <input type="number" v-model.number="capacityLimits[level]" class="w-full border border-slate-300 rounded-lg p-1 text-sm text-center font-black text-indigo-700 bg-white">
+                        </div>
+                    </div>
+                    <div class="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200 mt-2">
+                        <label class="block text-[11px] font-bold text-emerald-700 mb-1"><i class="fa-solid fa-bus mr-1"></i>순회학급 (공통)</label>
+                        <input type="number" v-model.number="itinerantLimit" class="w-full border border-emerald-300 rounded-lg p-1 text-sm text-center font-black text-emerald-800 bg-white">
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Dashboard Center Area -->
+            <div class="flex-1 flex flex-col overflow-hidden bg-slate-100" v-if="dataLoaded">
+                <!-- KPI Cards (Clickable Filters) -->
+                <div class="grid grid-cols-4 gap-4 p-5 shrink-0">
+                    <div @click="setFilter('all')" class="bg-white rounded-2xl shadow-sm p-4 border-l-4 flex items-center justify-between cursor-pointer transition-transform hover:scale-105" :class="activeFilter === 'all' ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-indigo-300'">
+                        <div>
+                            <p class="text-[11px] text-slate-500 font-bold mb-1">총 시뮬레이션 대상</p>
+                            <h3 class="text-3xl font-black text-slate-800">{{ filteredStudents.length }}<span class="text-sm font-normal text-slate-500 ml-1">명</span></h3>
+                        </div>
+                    </div>
+                    
+                    <div @click="setFilter('overcrowded')" class="bg-white rounded-2xl shadow-sm p-4 border-l-4 flex items-center justify-between cursor-pointer transition-transform hover:scale-105" :class="activeFilter === 'overcrowded' ? 'border-rose-500 ring-2 ring-rose-200' : 'border-rose-300'">
+                        <div>
+                            <p class="text-[11px] text-rose-500 font-bold mb-1">🚨 과원 학교/학생 보기</p>
+                            <h3 class="text-3xl font-black text-rose-600">{{ overcrowdedSchoolsCount }}<span class="text-sm font-normal text-slate-500 ml-1">교</span></h3>
+                        </div>
+                    </div>
+
+                    <div @click="setFilter('reducible')" class="bg-white rounded-2xl shadow-sm p-4 border-l-4 flex items-center justify-between cursor-pointer transition-transform hover:scale-105" :class="activeFilter === 'reducible' ? 'border-emerald-500 ring-2 ring-emerald-200' : 'border-emerald-300'">
+                        <div>
+                            <p class="text-[11px] text-emerald-600 font-bold mb-1">🔵 감축우려 학교 보기</p>
+                            <h3 class="text-3xl font-black text-emerald-600">{{ reducibleClassesCount }}<span class="text-sm font-normal text-slate-500 ml-1">학급</span></h3>
+                        </div>
+                    </div>
+
+                    <div @click="setFilter('unplaced')" class="bg-white rounded-2xl shadow-sm p-3 border-l-4 flex items-center justify-between cursor-pointer transition-transform hover:scale-105" :class="activeFilter === 'unplaced' ? 'border-amber-500 ring-2 ring-amber-200' : 'border-amber-300'">
+                        <div class="w-full">
+                            <p class="text-[11px] text-amber-600 font-bold mb-0.5">⚠️ 기배치 및 제외</p>
+                            <div class="flex items-baseline gap-1">
+                                <h3 class="text-2xl font-black text-amber-600">{{ preAssignedCount + excludedCount }}</h3>
+                                <span class="text-[10px] font-normal text-slate-500">명</span>
+                            </div>
+                            <div class="flex gap-2 text-[9px] text-slate-500 font-bold mt-0.5">
+                                <span class="bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded">기배치 {{ preAssignedCount }}</span>
+                                <span class="bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded">제외 {{ excludedCount }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Main Content Area with Toggle -->
+                <div class="flex-1 flex flex-col gap-3 px-5 pb-5 overflow-hidden">
+                    <div class="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border border-slate-200 shrink-0">
+                        <div class="flex bg-slate-100 p-1 rounded-lg">
+                            <button @click="viewMode = 'list'" class="px-4 py-1.5 text-xs font-bold rounded-md transition-colors" :class="viewMode === 'list' ? 'bg-white shadow-sm text-indigo-700' : 'text-slate-500 hover:bg-slate-200'">학생 리스트 뷰</button>
+                            <button @click="viewMode = 'school'" class="px-4 py-1.5 text-xs font-bold rounded-md transition-colors" :class="viewMode === 'school' ? 'bg-white shadow-sm text-indigo-700' : 'text-slate-500 hover:bg-slate-200'">학교별 배치 뷰</button>
+                        </div>
+                        <div class="relative">
+                            <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                            <input type="text" v-model="searchQuery" :placeholder="viewMode === 'list' ? '학생명 / 배치예정교 검색' : '학교명 검색'" class="pl-8 pr-3 py-1.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 outline-none w-64 shadow-sm font-medium transition-all">
+                        </div>
+                    </div>
+
+                    <!-- VIEW 1: 학교별 뷰 (Accordion) -->
+                    <div v-if="viewMode === 'school'" class="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-4 pb-20">
+                        <div v-for="school in filteredDisplayedSchools" :key="school.id" class="bg-white rounded-2xl shadow-sm border transition-all" :class="getCardBorderClass(school)">
+                            <!-- School Header -->
+                            <div class="p-4 cursor-pointer flex justify-between items-center" :class="school.isOvercrowded ? 'bg-rose-50/50' : 'bg-slate-50/50 hover:bg-slate-50'" @click="toggleAccordion(school.id)">
+                                <div class="flex items-center gap-4">
+                                    <div class="flex items-baseline gap-1.5">
+                                        <h3 class="text-base font-black text-slate-800">{{ school.name }}</h3>
+                                    </div>
+                                    <span class="text-[10px] px-2 py-0.5 rounded font-bold border bg-white shadow-sm" :class="getBadgeClass(school.classType)">{{ school.classType }}</span>
+                                    <span v-if="school.isNew" class="text-[9px] bg-amber-100 text-amber-700 border border-amber-300 px-1.5 py-0.5 rounded font-black">가상신설</span>
+                                    <button v-if="school.isNew" @click.stop="deleteSchool(school.id)" class="text-rose-500 hover:text-rose-700 ml-1 text-sm" title="가상신설 학교 삭제"><i class="fa-solid fa-trash-can"></i></button>
+
+                                    <!-- V22 증감 버튼 -->
+                                    <div class="flex items-center bg-white border border-slate-300 rounded-lg overflow-hidden shadow-sm transition-colors ml-2" :class="getClassModifierClass(school)" @click.stop>
+                                        <button @click="changeClasses(school.id, -1)" class="px-2 py-1 hover:bg-slate-100 border-r border-slate-300"><i class="fa-solid fa-minus text-xs"></i></button>
+                                        <div class="px-3 py-1 text-xs font-black w-16 text-center">
+                                            {{ school.existingClasses }}학급
+                                        </div>
+                                        <button @click="changeClasses(school.id, 1)" class="px-2 py-1 hover:bg-slate-100 border-l border-slate-300"><i class="fa-solid fa-plus text-xs"></i></button>
+                                    </div>
+
+                                    <div class="flex items-center gap-2 text-xs font-bold bg-white px-3 py-1 rounded-lg border border-slate-200 shadow-sm ml-2">
+                                        <span class="text-slate-500">배정:</span>
+                                        <span :class="school.isOvercrowded ? 'text-rose-600 text-sm' : 'text-slate-800'">{{ school.specialAssignedCount }}명</span>
+                                        <span class="text-slate-300">/</span>
+                                        <span class="text-slate-500">T/O: {{ school.maxCapacity }}명</span>
+                                    </div>
+                                    <div v-if="school.isOvercrowded" class="bg-rose-100 text-rose-700 px-2 py-1 rounded text-[10px] font-black"><i class="fa-solid fa-triangle-exclamation mr-1"></i>{{ school.overcrowdedCount }}명 초과</div>
+                                    <div v-else-if="school.reducibleClasses > 0" class="bg-emerald-100 text-emerald-700 px-2 py-1 rounded text-[10px] font-black"><i class="fa-solid fa-arrow-down mr-1"></i>{{ school.reducibleClasses }}학급 감축우려</div>
+                                </div>
+                                <i class="fa-solid transition-transform text-slate-400" :class="openAccordions.includes(school.id) ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                            </div>
+                            
+                            <!-- School Content (Students) -->
+                            <div v-show="openAccordions.includes(school.id)" class="border-t border-slate-100 bg-white overflow-x-auto custom-scrollbar">
+                                <table class="w-full text-xs text-left min-w-max">
+                                    <thead class="text-[11px] text-slate-500 uppercase bg-slate-50 font-bold border-b border-slate-100">
+                                        <tr>
+                                            <th class="px-2 py-2 w-12 text-center">마크</th>
+                                            <th @click="setSort('current')" class="px-2 py-2 w-24 cursor-pointer hover:bg-slate-200 transition-colors">
+                                                현재 재학교 <i class="fa-solid ml-1 text-[11px]" :class="sortKey === 'current' ? (sortOrder === 1 ? 'fa-sort-up text-indigo-600' : 'fa-sort-down text-indigo-600') : 'fa-sort text-slate-300'"></i>
+                                            </th>
+                                            <th @click="setSort('name')" class="px-2 py-2 w-20 cursor-pointer hover:bg-slate-200 transition-colors">
+                                                학생명 <i class="fa-solid ml-1 text-[11px]" :class="sortKey === 'name' ? (sortOrder === 1 ? 'fa-sort-up text-indigo-600' : 'fa-sort-down text-indigo-600') : 'fa-sort text-slate-300'"></i>
+                                            </th>
+                                            <th @click="setSort('closest')" class="px-2 py-2 w-32 text-center cursor-pointer hover:bg-slate-200 transition-colors">
+                                                최근거리교 <i class="fa-solid ml-1 text-[11px]" :class="sortKey === 'closest' ? (sortOrder === 1 ? 'fa-sort-up text-indigo-600' : 'fa-sort-down text-indigo-600') : 'fa-sort text-slate-300'"></i>
+                                            </th>
+                                            <th class="px-2 py-2">지망 (1/2/3) 및 잔여 현황</th>
+                                            <th class="px-2 py-2 min-w-[600px] text-center">메모</th>
+                                            <th class="px-2 py-2 w-48 text-center bg-indigo-50/50">배치 변경</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr v-for="student in getStudentsBySchool(school.id)" :key="student.id" @click="student.isSelected = !student.isSelected" :class="getRowClass(student)">
+                                            <td class="px-2 py-2 text-center">
+                                                <button @click.stop="toggleMark(student, 'fix')" class="block mx-auto mb-0.5 text-sm transition-colors" :class="student.isFixed ? 'text-rose-500 hover:text-rose-600' : 'text-slate-300 hover:text-slate-400'" title="고정"><i class="fa-solid fa-thumbtack"></i></button>
+                                                <button @click.stop="toggleMark(student, 'star')" class="block mx-auto text-sm transition-colors" :class="student.isStarred ? 'text-amber-400 hover:text-amber-500' : 'text-slate-300 hover:text-slate-400'" title="중요"><i class="fa-solid fa-star"></i></button>
+                                            </td>
+                                            <td class="px-2 py-2 font-bold text-slate-600">{{ student.currentSchool }}</td>
+                                            <td class="px-2 py-2 font-black text-slate-800">{{ student.name }}</td>
+                                            <td class="px-2 py-2 text-center font-bold text-slate-500">
+                                                {{ student.closestName || '-' }}
+                                                <span v-if="getExistingClasses(student.closest_id)" class="text-[9px] text-slate-400 font-medium ml-0.5">({{ getExistingClasses(student.closest_id) }}학급)</span>
+                                                <div v-if="student.closest_id" class="text-[9px] font-bold mt-0.5" :class="getRemainingCapacityClass(student, student.closest_id)">[잔여: {{ getRemainingCapacity(student.closest_id) }}]</div>
+                                                <div v-if="student.closestDist" class="text-[9px] text-slate-400 mt-0.5" :class="isOverflow(student) ? 'text-rose-700' : ''">{{ student.closestDist }}km</div>
+                                            </td>
+                                            <td class="px-2 py-2">
+                                                <div class="flex flex-col gap-1 text-[10px]">
+                                                    <!-- 1지망 -->
+                                                    <div class="flex items-center gap-1.5 flex-wrap">
+                                                        <span class="px-1 rounded font-bold text-white shadow-sm text-[9px]" :class="isMatch(student.choice1_id, student.assignedSchool) ? 'bg-indigo-600' : 'bg-slate-300'">1</span>
+                                                        <template v-if="student.choice1_id">
+                                                            <span :class="isMatch(student.choice1_id, student.assignedSchool) ? 'font-black text-indigo-700' : 'font-bold text-slate-700'">{{ getChoiceName(student.choice1_id) }}</span>
+                                                            <span class="text-[8px] px-1 py-0.5 rounded font-black border" :class="getBadgeClass(getChoiceType(student.choice1_id))">{{ getChoiceType(student.choice1_id) }}</span>
+                                                            <span v-if="getExistingClasses(student.choice1_id)" class="text-[9px] text-slate-400 font-medium ml-0.5">({{ getExistingClasses(student.choice1_id) }}학급)</span>
+                                                            <span class="text-[9px] font-bold ml-1" :class="getRemainingCapacityClass(student, student.choice1_id)">[잔여: {{ getRemainingCapacity(student.choice1_id) }}]</span>
+                                                            <span class="text-slate-400 font-medium ml-0.5" :class="isOverflow(student) ? 'text-rose-700' : ''" v-if="student.c1_dist">{{student.c1_dist}}km</span>
+                                                        </template>
+                                                        <span v-else class="font-bold text-slate-400">-</span>
+                                                    </div>
+                                                    <!-- 2지망 -->
+                                                    <div class="flex items-center gap-1.5 flex-wrap">
+                                                        <span class="px-1 rounded font-bold text-white shadow-sm text-[9px]" :class="isMatch(student.choice2_id, student.assignedSchool) ? 'bg-indigo-600' : 'bg-slate-300'">2</span>
+                                                        <template v-if="student.choice2_id">
+                                                            <span :class="isMatch(student.choice2_id, student.assignedSchool) ? 'font-black text-indigo-700' : 'font-bold text-slate-700'">{{ getChoiceName(student.choice2_id) }}</span>
+                                                            <span class="text-[8px] px-1 py-0.5 rounded font-black border" :class="getBadgeClass(getChoiceType(student.choice2_id))">{{ getChoiceType(student.choice2_id) }}</span>
+                                                            <span v-if="getExistingClasses(student.choice2_id)" class="text-[9px] text-slate-400 font-medium ml-0.5">({{ getExistingClasses(student.choice2_id) }}학급)</span>
+                                                            <span class="text-[9px] font-bold ml-1" :class="getRemainingCapacityClass(student, student.choice2_id)">[잔여: {{ getRemainingCapacity(student.choice2_id) }}]</span>
+                                                            <span class="text-slate-400 font-medium ml-0.5" :class="isOverflow(student) ? 'text-rose-700' : ''" v-if="student.c2_dist">{{student.c2_dist}}km</span>
+                                                        </template>
+                                                        <span v-else class="font-bold text-slate-400">-</span>
+                                                    </div>
+                                                    <!-- 3지망 -->
+                                                    <div class="flex items-center gap-1.5 flex-wrap">
+                                                        <span class="px-1 rounded font-bold text-white shadow-sm text-[9px]" :class="isMatch(student.choice3_id, student.assignedSchool) ? 'bg-indigo-600' : 'bg-slate-300'">3</span>
+                                                        <template v-if="student.choice3_id">
+                                                            <span :class="isMatch(student.choice3_id, student.assignedSchool) ? 'font-black text-indigo-700' : 'font-bold text-slate-700'">{{ getChoiceName(student.choice3_id) }}</span>
+                                                            <span class="text-[8px] px-1 py-0.5 rounded font-black border" :class="getBadgeClass(getChoiceType(student.choice3_id))">{{ getChoiceType(student.choice3_id) }}</span>
+                                                            <span v-if="getExistingClasses(student.choice3_id)" class="text-[9px] text-slate-400 font-medium ml-0.5">({{ getExistingClasses(student.choice3_id) }}학급)</span>
+                                                            <span class="text-[9px] font-bold ml-1" :class="getRemainingCapacityClass(student, student.choice3_id)">[잔여: {{ getRemainingCapacity(student.choice3_id) }}]</span>
+                                                            <span class="text-slate-400 font-medium ml-0.5" :class="isOverflow(student) ? 'text-rose-700' : ''" v-if="student.c3_dist">{{student.c3_dist}}km</span>
+                                                        </template>
+                                                        <span v-else class="font-bold text-slate-400">-</span>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="px-2 py-2 text-center align-top">
+                                                <textarea v-model.lazy="student.memo" @click.stop rows="2" class="w-full border rounded p-1.5 text-[11px] outline-none focus:ring-1 focus:ring-indigo-500 shadow-sm resize-none custom-scrollbar" :class="isOverflow(student) ? 'border-rose-400 bg-rose-50/50 text-rose-900 placeholder-rose-300' : 'border-slate-300 bg-white placeholder-slate-300'" placeholder="메모 입력"></textarea>
+                                            </td>
+                                            <td class="px-2 py-2 bg-slate-50/50 align-top" :class="isOverflow(student) ? 'bg-rose-200/50' : ''">
+                                                <select @click.stop v-model="student.assignedSchool" class="w-full border rounded-lg p-1.5 text-[10px] outline-none shadow-sm font-bold bg-white" :class="getSelectClass(student)">
+                                                    <option value="PRE_ASSIGNED" class="text-indigo-600 font-black">-- 기배치 (특수학교 등) --</option>
+                                                    <option value="EXCLUDED" class="text-amber-600 font-black">-- 배치 제외 (임시제외) --</option>
+                                                    <optgroup v-for="(group, level) in groupedSchoolsForSelect" :key="level" :label="level">
+                                                        <option v-for="sch in group" :key="sch.id" :value="sch.id" class="text-slate-700">
+                                                            {{ sch.name }} ({{ sch.classType }}) [잔여: {{ sch.maxCapacity - sch.specialAssignedCount }}]
+                                                        </option>
+                                                    </optgroup>
+                                                </select>
+                                                <div class="flex items-center justify-between mt-1">
+                                                    <div v-if="isOverflow(student)" class="text-[9px] text-red-700 font-black flex items-center">
+                                                        <i class="fa-solid fa-triangle-exclamation mr-1"></i>정원 초과(밀려남)
+                                                    </div>
+                                                    <div v-else-if="isStudentCausingOvercrowding(student)" class="text-[9px] text-rose-500 font-black flex items-center">
+                                                        <i class="fa-solid fa-circle-exclamation mr-1"></i>과원 학교
+                                                    </div>
+                                                    <div v-else></div>
+                                                    <span v-if="getDistanceToAssigned(student)" class="text-[9px] font-bold" :class="isOverflow(student) ? 'text-rose-700' : 'text-indigo-500'"><i class="fa-solid fa-location-dot mr-0.5"></i>{{ getDistanceToAssigned(student) }}km</span>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        <tr v-if="getStudentsBySchool(school.id).length === 0">
+                                            <td colspan="7" class="px-3 py-4 text-center text-slate-400 font-bold text-xs">배정된 학생이 없습니다.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- VIEW 2: 리스트 뷰 -->
+                    <div v-if="viewMode === 'list'" class="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+                        <div class="flex-1 overflow-auto custom-scrollbar">
+                            <table class="w-full text-xs text-left min-w-max">
+                                <thead class="text-[11px] text-slate-500 uppercase bg-slate-100 sticky top-0 z-10 font-bold shadow-sm">
+                                    <tr>
+                                        <th class="px-2 py-2 w-10 text-center">마크</th>
+                                        <th @click="setSort('current')" class="px-3 py-2 w-24 cursor-pointer hover:bg-slate-200 transition-colors">
+                                            현재 재학교 <i class="fa-solid ml-1 text-[11px]" :class="sortKey === 'current' ? (sortOrder === 1 ? 'fa-sort-up text-indigo-600' : 'fa-sort-down text-indigo-600') : 'fa-sort text-slate-300'"></i>
+                                        </th>
+                                        <th @click="setSort('name')" class="px-3 py-2 w-20 cursor-pointer hover:bg-slate-200 transition-colors">
+                                            학생명 <i class="fa-solid ml-1 text-[11px]" :class="sortKey === 'name' ? (sortOrder === 1 ? 'fa-sort-up text-indigo-600' : 'fa-sort-down text-indigo-600') : 'fa-sort text-slate-300'"></i>
+                                        </th>
+                                        <th @click="setSort('closest')" class="px-3 py-2 text-center w-32 cursor-pointer hover:bg-slate-200 transition-colors">
+                                            최근거리교 <i class="fa-solid ml-1 text-[11px]" :class="sortKey === 'closest' ? (sortOrder === 1 ? 'fa-sort-up text-indigo-600' : 'fa-sort-down text-indigo-600') : 'fa-sort text-slate-300'"></i>
+                                        </th>
+                                        <th class="px-3 py-2 w-[280px]">지망 (1/2/3) 및 잔여 현황</th>
+                                        <th class="px-3 py-2 min-w-[300px] w-[400px] text-center">메모</th>
+                                        <th @click="setSort('assigned')" class="px-3 py-2 w-48 text-indigo-700 bg-indigo-50/50 cursor-pointer hover:bg-indigo-100/50 transition-colors">
+                                            배치 예정교 <i class="fa-solid ml-1 text-[11px]" :class="sortKey === 'assigned' ? (sortOrder === 1 ? 'fa-sort-up text-indigo-600' : 'fa-sort-down text-indigo-600') : 'fa-sort text-indigo-300'"></i>
+                                        </th>
+                                        <th class="px-3 py-2 w-48 text-indigo-700 bg-indigo-50/50">배치 변경</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="student in processedListStudents" :key="student.id" @click="student.isSelected = !student.isSelected" :class="getRowClass(student)">
+                                        <td class="px-2 py-2 text-center">
+                                            <button @click.stop="toggleMark(student, 'fix')" class="block mx-auto mb-1 text-sm transition-colors" :class="student.isFixed ? 'text-rose-500' : 'text-slate-300 hover:text-slate-400'"><i class="fa-solid fa-thumbtack"></i></button>
+                                            <button @click.stop="toggleMark(student, 'star')" class="block mx-auto text-sm transition-colors" :class="student.isStarred ? 'text-amber-400' : 'text-slate-300 hover:text-slate-400'"><i class="fa-solid fa-star"></i></button>
+                                        </td>
+                                        <td class="px-3 py-2 font-bold text-slate-600">{{ student.currentSchool }}</td>
+                                        <td class="px-3 py-2 font-black text-slate-800">{{ student.name }}</td>
+                                        <td class="px-3 py-2 text-center font-bold text-slate-600">
+                                            {{ student.closestName || '-' }}
+                                            <span v-if="getExistingClasses(student.closest_id)" class="text-[9px] text-slate-400 font-medium ml-0.5">({{ getExistingClasses(student.closest_id) }}학급)</span>
+                                            <div v-if="student.closest_id" class="text-[9px] font-bold mt-0.5" :class="getRemainingCapacityClass(student, student.closest_id)">[잔여: {{ getRemainingCapacity(student.closest_id) }}]</div>
+                                            <div v-if="student.closestDist" class="text-[9px] text-slate-400 mt-0.5" :class="isOverflow(student) ? 'text-rose-700' : ''">{{ student.closestDist }}km</div>
+                                        </td>
+                                        <td class="px-3 py-2">
+                                            <div class="flex flex-col gap-1 text-[10px]">
+                                                <!-- 1지망 -->
+                                                <div class="flex items-center gap-1.5 flex-wrap">
+                                                    <span class="px-1 rounded font-bold text-white shadow-sm text-[9px]" :class="isMatch(student.choice1_id, student.assignedSchool) ? 'bg-indigo-600' : 'bg-slate-300'">1</span>
+                                                    <template v-if="student.choice1_id">
+                                                        <span :class="isMatch(student.choice1_id, student.assignedSchool) ? 'font-black text-indigo-700' : 'font-bold text-slate-700'">{{ getChoiceName(student.choice1_id) }}</span>
+                                                        <span class="text-[8px] px-1 py-0.5 rounded font-black border" :class="getBadgeClass(getChoiceType(student.choice1_id))">{{ getChoiceType(student.choice1_id) }}</span>
+                                                        <span v-if="getExistingClasses(student.choice1_id)" class="text-[9px] text-slate-400 font-medium ml-0.5">({{ getExistingClasses(student.choice1_id) }}학급)</span>
+                                                        <span class="text-[9px] font-bold ml-1" :class="getRemainingCapacityClass(student, student.choice1_id)">[잔여: {{ getRemainingCapacity(student.choice1_id) }}]</span>
+                                                        <span class="text-slate-400 font-medium ml-0.5" :class="isOverflow(student) ? 'text-rose-700' : ''" v-if="student.c1_dist">{{student.c1_dist}}km</span>
+                                                    </template>
+                                                    <span v-else class="font-bold text-slate-400">-</span>
+                                                </div>
+                                                <!-- 2지망 -->
+                                                <div class="flex items-center gap-1.5 flex-wrap">
+                                                    <span class="px-1 rounded font-bold text-white shadow-sm text-[9px]" :class="isMatch(student.choice2_id, student.assignedSchool) ? 'bg-indigo-600' : 'bg-slate-300'">2</span>
+                                                    <template v-if="student.choice2_id">
+                                                        <span :class="isMatch(student.choice2_id, student.assignedSchool) ? 'font-black text-indigo-700' : 'font-bold text-slate-700'">{{ getChoiceName(student.choice2_id) }}</span>
+                                                        <span class="text-[8px] px-1 py-0.5 rounded font-black border" :class="getBadgeClass(getChoiceType(student.choice2_id))">{{ getChoiceType(student.choice2_id) }}</span>
+                                                        <span v-if="getExistingClasses(student.choice2_id)" class="text-[9px] text-slate-400 font-medium ml-0.5">({{ getExistingClasses(student.choice2_id) }}학급)</span>
+                                                        <span class="text-[9px] font-bold ml-1" :class="getRemainingCapacityClass(student, student.choice2_id)">[잔여: {{ getRemainingCapacity(student.choice2_id) }}]</span>
+                                                        <span class="text-slate-400 font-medium ml-0.5" :class="isOverflow(student) ? 'text-rose-700' : ''" v-if="student.c2_dist">{{student.c2_dist}}km</span>
+                                                    </template>
+                                                    <span v-else class="font-bold text-slate-400">-</span>
+                                                </div>
+                                                <!-- 3지망 -->
+                                                <div class="flex items-center gap-1.5 flex-wrap">
+                                                    <span class="px-1 rounded font-bold text-white shadow-sm text-[9px]" :class="isMatch(student.choice3_id, student.assignedSchool) ? 'bg-indigo-600' : 'bg-slate-300'">3</span>
+                                                    <template v-if="student.choice3_id">
+                                                        <span :class="isMatch(student.choice3_id, student.assignedSchool) ? 'font-black text-indigo-700' : 'font-bold text-slate-700'">{{ getChoiceName(student.choice3_id) }}</span>
+                                                        <span class="text-[8px] px-1 py-0.5 rounded font-black border" :class="getBadgeClass(getChoiceType(student.choice3_id))">{{ getChoiceType(student.choice3_id) }}</span>
+                                                        <span v-if="getExistingClasses(student.choice3_id)" class="text-[9px] text-slate-400 font-medium ml-0.5">({{ getExistingClasses(student.choice3_id) }}학급)</span>
+                                                        <span class="text-[9px] font-bold ml-1" :class="getRemainingCapacityClass(student, student.choice3_id)">[잔여: {{ getRemainingCapacity(student.choice3_id) }}]</span>
+                                                        <span class="text-slate-400 font-medium ml-0.5" :class="isOverflow(student) ? 'text-rose-700' : ''" v-if="student.c3_dist">{{student.c3_dist}}km</span>
+                                                    </template>
+                                                    <span v-else class="font-bold text-slate-400">-</span>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="px-3 py-2 text-center align-top">
+                                            <textarea v-model.lazy="student.memo" @click.stop rows="2" class="w-full border rounded p-1.5 text-[11px] outline-none focus:ring-1 focus:ring-indigo-500 shadow-sm resize-none custom-scrollbar" :class="isOverflow(student) ? 'border-rose-400 bg-rose-50/50 text-rose-900 placeholder-rose-300' : 'border-slate-300 bg-white placeholder-slate-300'" placeholder="메모 입력"></textarea>
+                                        </td>
+                                        <td class="px-3 py-2 bg-indigo-50/30 align-top">
+                                            <div class="flex items-center gap-1.5 flex-wrap mt-1">
+                                                <template v-if="['EXCLUDED', 'PRE_ASSIGNED', null, ''].includes(student.assignedSchool)">
+                                                    <span class="font-black text-[11px] text-amber-600">{{ formatAssignedSchoolText(student.assignedSchool) }}</span>
+                                                </template>
+                                                <template v-else>
+                                                    <span class="font-black text-[11.5px] text-indigo-700">{{ getChoiceName(student.assignedSchool) }}</span>
+                                                    <span class="text-[9px] px-1.5 py-0.5 rounded font-black border shadow-sm" :class="getBadgeClass(getChoiceType(student.assignedSchool))">{{ getChoiceType(student.assignedSchool) }}</span>
+                                                    <span v-if="getExistingClasses(student.assignedSchool)" class="text-[9px] text-indigo-500 font-medium ml-0.5">({{ getExistingClasses(student.assignedSchool) }}학급)</span>
+                                                </template>
+                                            </div>
+                                        </td>
+                                        <td class="px-3 py-2 bg-slate-50/50 align-top" :class="isOverflow(student) ? 'bg-rose-200/50' : ''">
+                                            <select @click.stop v-model="student.assignedSchool" class="w-full border rounded-lg p-1.5 text-[10px] outline-none shadow-sm font-bold bg-white" :class="getSelectClass(student)">
+                                                <option value="PRE_ASSIGNED" class="text-indigo-600 font-black">-- 기배치 (특수학교 등) --</option>
+                                                <option value="EXCLUDED" class="text-amber-600 font-black">-- 배치 제외 (임시제외) --</option>
+                                                <optgroup v-for="(group, level) in groupedSchoolsForSelect" :key="level" :label="level">
+                                                    <option v-for="sch in group" :key="sch.id" :value="sch.id" class="text-slate-700">
+                                                        {{ sch.name }} ({{ sch.classType }}) [잔여: {{ sch.maxCapacity - sch.specialAssignedCount }}]
+                                                    </option>
+                                                </optgroup>
+                                            </select>
+                                            <div class="flex items-center justify-between mt-1">
+                                                <div v-if="isOverflow(student)" class="text-[9px] text-red-700 font-black flex items-center">
+                                                    <i class="fa-solid fa-triangle-exclamation mr-1"></i>정원 초과(밀려남)
+                                                </div>
+                                                <div v-else-if="isStudentCausingOvercrowding(student)" class="text-[9px] text-rose-500 font-black flex items-center">
+                                                    <i class="fa-solid fa-circle-exclamation mr-1"></i>과원 학교
+                                                </div>
+                                                <div v-else></div>
+                                                <span v-if="getDistanceToAssigned(student)" class="text-[9px] font-bold" :class="isOverflow(student) ? 'text-rose-700' : 'text-indigo-500'"><i class="fa-solid fa-location-dot mr-0.5"></i>{{ getDistanceToAssigned(student) }}km</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Empty State Before Upload -->
+            <div class="flex-1 flex flex-col items-center justify-center bg-slate-50 text-slate-400" v-else>
+                <div class="bg-white p-10 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center text-center max-w-md">
+                    <div class="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center text-3xl mb-4">
+                        <i class="fa-solid fa-file-csv"></i>
+                    </div>
+                    <h2 class="text-xl font-black text-slate-700 mb-2">데이터를 올려주세요</h2>
+                    
+                    <div v-if="rawSchools.length > 0 && rawStudents.length === 0" class="text-xs text-slate-500 mb-6 leading-relaxed">
+                        <p class="text-emerald-600 font-bold mb-2 text-sm"><i class="fa-solid fa-check-circle"></i> 공통 학교 T/O 데이터 로드 완료</p>
+                        좌측 메뉴에서 <b>'2. 입학 접수대장 파일'</b>을 업로드하시면 바로 시작됩니다. 
+                        <br><br>다운로드했던 작업 내역이 있다면 우측 상단의 <b>'백업 열기'</b>를 이용하세요.
+                    </div>
+                    
+                    <div v-else-if="rawSchools.length === 0 && rawStudents.length > 0" class="text-xs text-slate-500 mb-6 leading-relaxed">
+                        <p class="text-emerald-600 font-bold mb-2 text-sm"><i class="fa-solid fa-check-circle"></i> 입학 접수대장 로드 완료</p>
+                        <p class="text-rose-500 font-bold mb-2"><i class="fa-solid fa-triangle-exclamation"></i> 학교 T/O 데이터 누락</p>
+                        좌측 메뉴에서 <b>'1. 학교 T/O 데이터'</b>를 마저 업로드하셔야 시뮬레이터가 구동됩니다.
+                    </div>
+
+                    <div v-else class="text-xs text-slate-500 mb-6 leading-relaxed">
+                        <p class="text-rose-500 font-bold mb-2"><i class="fa-solid fa-triangle-exclamation"></i> 파일 자동 로드 실패 (파일 없음)</p>
+                        좌측 메뉴에서 <b>'1. 학교 T/O 데이터'</b>와 <b>'2. 입학 접수대장 파일'</b>을<br>순서대로 모두 업로드해주세요.
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- New School Modal -->
+        <div v-if="showNewSchoolModal" class="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50">
+            <div class="bg-white rounded-2xl shadow-xl w-96 overflow-hidden">
+                <div class="bg-indigo-600 text-white px-4 py-3 font-black flex justify-between items-center">
+                    <span>가상 신설교 추가</span>
+                    <button @click="showNewSchoolModal = false"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="p-5 flex flex-col gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">학교명</label>
+                        <input type="text" v-model="newSchool.name" class="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" placeholder="예: 가칭 대한중학교">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">학교급</label>
+                        <select v-model="newSchool.level" class="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+                            <option value="고등학교">고등학교</option>
+                            <option value="중학교">중학교</option>
+                            <option value="초등학교">초등학교</option>
+                            <option value="유치원">유치원</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">학급 유형</label>
+                        <select v-model="newSchool.type" class="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+                            <option value="특수학급">특수학급</option>
+                            <option value="순회학급">순회학급</option>
+                            <option value="복합특수학급">복합특수학급</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">초기 학급 수</label>
+                        <input type="number" v-model.number="newSchool.classes" class="w-full border border-slate-300 rounded-lg p-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" min="1">
+                    </div>
+                    <button @click="confirmNewSchool" class="w-full text-white font-black py-2 rounded-lg mt-2 transition-colors duration-300 bg-indigo-600 hover:bg-indigo-700">추가하기</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    selectedSchoolLevel: '전체',
+                    csvEncoding: 'EUC-KR',
+                    rawSchools: [],
+                    rawStudents: [],
+                    generalSchoolsFromStudents: [],
+                    
+                    capacityLimits: {
+                        '유치원': 4,
+                        '초등학교': 6,
+                        '중학교': 6,
+                        '고등학교': 7
+                    },
+                    itinerantLimit: 4,
+                    
+                    dataLoaded: false,
+                    searchQuery: '',
+                    viewMode: 'list', 
+                    activeFilter: 'all', 
+                    openAccordions: [], 
+                    
+                    sortKey: null,
+                    sortOrder: 1, 
+                    
+                    scenarios: [],
+                    currentScenarioId: null,
+                    
+                    schools: [],
+                    students: [],
+                    
+                    history: [],
+                    historyIndex: -1,
+                    isUndoing: false,
+
+                    showNewSchoolModal: false,
+                    newSchool: { name: '', level: '고등학교', type: '특수학급', classes: 1 }
+                }
+            },
+            mounted() {
+                // 자동 로드 시도
+                Papa.parse('학교 TO.csv', {
+                    download: true,
+                    encoding: 'EUC-KR',
+                    skipEmptyLines: true,
+                    complete: (results) => {
+                        if(results.data && results.data.length > 0) {
+                            this.parseSchoolData(results.data);
+                            
+                            // [핵심 변경 사항] DataTransfer API를 활용하여 UI 텍스트 강제 변경
+                            this.$nextTick(() => {
+                                try {
+                                    const dt = new DataTransfer();
+                                    // 빈 파일이지만 이름만 '학교 TO.csv'로 껍데기를 만들어 넣습니다.
+                                    const file = new File(["자동 로드 완료"], "학교 TO.csv", { type: "text/csv" });
+                                    dt.items.add(file);
+                                    
+                                    const fileInput = document.getElementById('schoolFileInput');
+                                    if(fileInput) {
+                                        fileInput.files = dt.files;
+                                    }
+                                } catch (e) {
+                                    console.log("UI 텍스트 강제 변경을 지원하지 않는 구형 브라우저입니다.", e);
+                                }
+                            });
+                        }
+                    },
+                    error: (err) => {
+                        console.log('기본 T/O 데이터 자동 로드 실패(수동 업로드 필요):', err);
+                    }
+                });
+            },
+            watch: {
+                students: {
+                    handler() {
+                        if (this.dataLoaded && !this.isUndoing) {
+                            this.saveSnapshot();
+                        }
+                    },
+                    deep: true
+                },
+                selectedSchoolLevel(newVal) {
+                    if (this.dataLoaded) {
+                        this.syncGyeongeunChoices(newVal);
+                        
+                        const sc1 = this.scenarios.find(sc => sc.id === 'sc_default_1');
+                        const sc2 = this.scenarios.find(sc => sc.id === 'sc_default_2');
+                        
+                        this.students.forEach(s => {
+                            if (sc1) {
+                                let assigned = s.closest_id;
+                                if (assigned && assigned !== 'EXCLUDED' && assigned !== 'PRE_ASSIGNED') {
+                                    if (!this.schools.find(sch => sch.id === assigned)) assigned = 'EXCLUDED';
+                                } else if (!assigned) {
+                                    assigned = 'EXCLUDED';
+                                }
+                                sc1.assignments[s.id].school = assigned;
+                            }
+                            if (sc2) {
+                                let assigned = s.choice1_id || s.closest_id; 
+                                if (assigned && assigned !== 'EXCLUDED' && assigned !== 'PRE_ASSIGNED') {
+                                    if (!this.schools.find(sch => sch.id === assigned)) assigned = 'EXCLUDED';
+                                } else if (!assigned) {
+                                    assigned = 'EXCLUDED'; 
+                                }
+                                sc2.assignments[s.id].school = assigned;
+                            }
+                        });
+
+                        if (this.currentScenarioId === 'sc_default_1' || this.currentScenarioId === 'sc_default_2') {
+                            this.loadScenario();
+                        }
+                    }
+                }
+            },
+            computed: {
+                canUndo() { return this.historyIndex > 0; },
+                canRedo() { return this.historyIndex < this.history.length - 1; },
+
+                filteredSchools() {
+                    let list = this.schools;
+                    if (this.selectedSchoolLevel !== '전체') {
+                        list = list.filter(s => s.level === this.selectedSchoolLevel);
+                    }
+                    return list;
+                },
+                filteredStudents() {
+                    let list = this.students;
+                    
+                    if (this.selectedSchoolLevel !== '전체') {
+                        list = list.filter(s => {
+                            let assignedLevel = (s.assignedSchool && s.assignedSchool !== 'EXCLUDED' && s.assignedSchool !== 'PRE_ASSIGNED') ? 
+                                this.getSchoolLevel(s.assignedSchool.split('_')[0]) : null;
+                            let closestLevel = s.closestName ? this.getSchoolLevel(s.closestName) : null;
+                            
+                            return assignedLevel === this.selectedSchoolLevel || (!assignedLevel && closestLevel === this.selectedSchoolLevel);
+                        });
+                    }
+                    
+                    if (this.searchQuery && this.viewMode === 'list') {
+                        const q = this.searchQuery.toLowerCase();
+                        list = list.filter(s => {
+                            const assignedName = (s.assignedSchool && s.assignedSchool !== 'EXCLUDED' && s.assignedSchool !== 'PRE_ASSIGNED') ? s.assignedSchool.split('_')[0] : '';
+                            return s.name.toLowerCase().includes(q) || assignedName.toLowerCase().includes(q);
+                        });
+                    }
+
+                    if (this.activeFilter === 'unplaced') {
+                        list = list.filter(s => s.assignedSchool === 'EXCLUDED' || s.assignedSchool === 'PRE_ASSIGNED' || !this.schools.some(sch => sch.id === s.assignedSchool));
+                    } else if (this.activeFilter === 'overcrowded') {
+                        const ocIds = this.analyzedSchools.filter(sch => sch.isOvercrowded).map(sch => sch.id);
+                        list = list.filter(s => ocIds.includes(s.assignedSchool));
+                    } else if (this.activeFilter === 'reducible') {
+                        const reIds = this.analyzedSchools.filter(sch => sch.reducibleClasses > 0).map(sch => sch.id);
+                        list = list.filter(s => reIds.includes(s.assignedSchool));
+                    }
+
+                    return list;
+                },
+                analyzedSchools() {
+                    const schoolMap = {};
+                    this.schools.forEach(sch => {
+                        if (!schoolMap[sch.id]) {
+                            const limit = (sch.classType === '순회학급' || sch.classType === '복합특수학급') ? this.itinerantLimit : (this.capacityLimits[sch.level] || 6);
+                            let diff = sch.existingClasses - (sch.origClasses || 0);
+                            let calcCapacity = (sch.origCapacity || 0) + (diff * limit);
+                            
+                            schoolMap[sch.id] = { ...sch, existingClasses: sch.existingClasses, maxCapacity: calcCapacity };
+                        } else {
+                            schoolMap[sch.id].existingClasses += sch.existingClasses;
+                            const limit = (sch.classType === '순회학급' || sch.classType === '복합특수학급') ? this.itinerantLimit : (this.capacityLimits[sch.level] || 6);
+                            let diff = sch.existingClasses - (sch.origClasses || 0);
+                            let calcCapacity = (sch.origCapacity || 0) + (diff * limit);
+                            schoolMap[sch.id].maxCapacity += calcCapacity;
+                        }
+                    });
+
+                    let result = Object.values(schoolMap).map(school => {
+                        const diagnosticClassLimit = school.classType === '순회학급' ? this.itinerantLimit : (this.capacityLimits[school.level] || 6);
+                        
+                        const assigned = this.students.filter(s => s.assignedSchool === school.id);
+                        const specialAssignedCount = assigned.filter(s => {
+                            const type = s.assignedSchool ? s.assignedSchool.split('_')[1] : '';
+                            return type !== '일반학급';
+                        }).length;
+                        
+                        const isOvercrowded = specialAssignedCount > school.maxCapacity;
+                        const overcrowdedCount = isOvercrowded ? (specialAssignedCount - school.maxCapacity) : 0;
+                        
+                        const remainingSpots = school.maxCapacity - specialAssignedCount;
+                        let reducibleClasses = 0;
+                        if (!isOvercrowded && remainingSpots >= diagnosticClassLimit) {
+                            reducibleClasses = Math.floor(remainingSpots / diagnosticClassLimit);
+                            if (reducibleClasses > school.existingClasses) reducibleClasses = school.existingClasses;
+                        }
+
+                        let requiredClasses = school.existingClasses;
+                        if (isOvercrowded) requiredClasses = school.existingClasses + Math.ceil(overcrowdedCount / diagnosticClassLimit);
+                        else requiredClasses = school.existingClasses - reducibleClasses;
+                        
+                        return { ...school, specialAssignedCount, reducibleClasses, requiredClasses, isOvercrowded, overcrowdedCount };
+                    });
+
+                    result.sort((a, b) => {
+                        if (a.isOvercrowded && !b.isOvercrowded) return -1;
+                        if (!a.isOvercrowded && b.isOvercrowded) return 1;
+                        if (a.reducibleClasses > 0 && b.reducibleClasses === 0) return -1;
+                        if (a.reducibleClasses === 0 && b.reducibleClasses > 0) return 1;
+                        return a.name.localeCompare(b.name);
+                    });
+
+                    return result;
+                },
+                overflowingStudentIds() {
+                    const overflowIds = new Set();
+                    this.analyzedSchools.forEach(sch => {
+                        if (sch.isOvercrowded) {
+                            let assigned = this.students.filter(s => s.assignedSchool === sch.id);
+                            assigned.sort((a, b) => {
+                                if (a.isFixed && !b.isFixed) return -1;
+                                if (!a.isFixed && b.isFixed) return 1;
+                                const distA = this.getDistanceToAssigned(a) || 999;
+                                const distB = this.getDistanceToAssigned(b) || 999;
+                                return distA - distB;
+                            });
+                           const startIndex = Math.max(0, Math.floor(sch.maxCapacity));
+                           for (let i = startIndex; i < assigned.length; i++) {
+                                overflowIds.add(assigned[i].id);
+                            }
+                        }
+                    });
+                    return overflowIds;
+                },
+                filteredDisplayedSchools() {
+                    let list = this.analyzedSchools.filter(sch => sch.classType !== '일반학급');
+                    if (this.selectedSchoolLevel !== '전체') {
+                        list = list.filter(sch => sch.level === this.selectedSchoolLevel);
+                    }
+                    if (this.activeFilter === 'overcrowded') {
+                        list = list.filter(sch => sch.isOvercrowded);
+                    } else if (this.activeFilter === 'reducible') {
+                        list = list.filter(sch => sch.reducibleClasses > 0);
+                    }
+                    
+                    if (this.searchQuery && this.viewMode === 'school') {
+                        const q = this.searchQuery.toLowerCase();
+                        list = list.filter(sch => sch.name.toLowerCase().includes(q));
+                    }
+                    
+                    return list;
+                },
+                processedListStudents() {
+                    let list = [...this.filteredStudents];
+                    list.sort((a, b) => {
+                        if (a.isFixed && !b.isFixed) return -1;
+                        if (!a.isFixed && b.isFixed) return 1;
+                        
+                        if (this.sortKey) {
+                            let valA = '', valB = '';
+                            if (this.sortKey === 'name') { valA = a.name; valB = b.name; }
+                            else if (this.sortKey === 'closest') { valA = a.closestName || ''; valB = b.closestName || ''; }
+                            else if (this.sortKey === 'current') { valA = a.currentSchool || ''; valB = b.currentSchool || ''; }
+                            else if (this.sortKey === 'assigned') { 
+                                valA = this.getChoiceName(a.assignedSchool) || ''; 
+                                valB = this.getChoiceName(b.assignedSchool) || ''; 
+                            }
+                            
+                            if (valA < valB) return -1 * this.sortOrder;
+                            if (valA > valB) return 1 * this.sortOrder;
+                        }
+                        
+                        const distA = this.getDistanceToAssigned(a) || 999;
+                        const distB = this.getDistanceToAssigned(b) || 999;
+                        return distA - distB;
+                    });
+                    return list;
+                },
+                overcrowdedSchoolsCount() {
+                    let schList = this.analyzedSchools;
+                    if (this.selectedSchoolLevel !== '전체') schList = schList.filter(s => s.level === this.selectedSchoolLevel);
+                    return schList.filter(s => s.isOvercrowded && s.classType !== '일반학급').length;
+                },
+                reducibleClassesCount() {
+                    let schList = this.analyzedSchools;
+                    if (this.selectedSchoolLevel !== '전체') schList = schList.filter(s => s.level === this.selectedSchoolLevel);
+                    return schList.reduce((total, school) => total + (school.classType !== '일반학급' ? school.reducibleClasses : 0), 0);
+                },
+                preAssignedCount() {
+                    let list = this.students.filter(s => s.assignedSchool === 'PRE_ASSIGNED');
+                    if (this.selectedSchoolLevel !== '전체') {
+                        list = list.filter(s => this.getSchoolLevel(s.closestName) === this.selectedSchoolLevel);
+                    }
+                    return list.length;
+                },
+                excludedCount() {
+                    let list = this.students.filter(s => s.assignedSchool === 'EXCLUDED' || (!s.assignedSchool && s.assignedSchool !== 'PRE_ASSIGNED'));
+                    if (this.selectedSchoolLevel !== '전체') {
+                        list = list.filter(s => this.getSchoolLevel(s.closestName) === this.selectedSchoolLevel);
+                    }
+                    return list.length;
+                },
+                groupedSchoolsForSelect() {
+                    const groups = {};
+                    this.analyzedSchools.forEach(sch => {
+                        if (this.selectedSchoolLevel !== '전체' && sch.level !== this.selectedSchoolLevel) {
+                            return;
+                        }
+                        if (!groups[sch.level]) groups[sch.level] = [];
+                        groups[sch.level].push(sch);
+                    });
+                    
+                    for (let level in groups) {
+                        groups[level].sort((a, b) => {
+                            const typeOrder = { '특수학급': 1, '순회학급': 2, '복합특수학급': 3, '일반학급': 4 };
+                            const orderA = typeOrder[a.classType] || 5;
+                            const orderB = typeOrder[b.classType] || 5;
+                            
+                            if (orderA !== orderB) return orderA - orderB;
+                            return a.name.localeCompare(b.name);
+                        });
+                    }
+                    return groups;
+                }
+            },
+            methods: {
+                getExistingClasses(id) {
+                    if (!id || id === 'EXCLUDED' || id === 'PRE_ASSIGNED') return null;
+                    const school = this.schools.find(s => s.id === id);
+                    if (school && school.classType !== '일반학급' && school.existingClasses > 0) {
+                        return school.existingClasses;
+                    }
+                    return null;
+                },
+                getRemainingCapacity(schoolId) {
+                    if (!schoolId || schoolId === 'EXCLUDED' || schoolId === 'PRE_ASSIGNED') return '-';
+                    const sch = this.analyzedSchools.find(s => s.id === schoolId);
+                    if (sch) return sch.maxCapacity - sch.specialAssignedCount;
+                    return '-';
+                },
+                getRemainingCapacityClass(student, schoolId) {
+                    if (!schoolId || schoolId === 'EXCLUDED' || schoolId === 'PRE_ASSIGNED') return '';
+                    if (student.assignedSchool === schoolId) return 'text-slate-400'; 
+                    
+                    const remaining = this.getRemainingCapacity(schoolId);
+                    if (remaining === '-') return 'text-slate-400';
+                    if (remaining < 0) return 'text-rose-700'; 
+                    return 'text-blue-600'; 
+                },
+
+                getClassModifierClass(sc) {
+                    if (sc.existingClasses > sc.origClasses) return 'text-emerald-700 font-black';
+                    if (sc.existingClasses < sc.origClasses) return 'text-rose-700 font-black';
+                    return 'text-slate-500';
+                },
+                getCardBorderClass(sc) {
+                    if (sc.isNew) return 'border-4 border-amber-400 z-10';
+                    if (sc.existingClasses > sc.origClasses) return 'border-4 border-emerald-400 z-10';
+                    if (sc.existingClasses < sc.origClasses) return 'border-4 border-rose-500 z-10';
+                    if (sc.isOvercrowded) return 'border-rose-300';
+                    return 'border-slate-200';
+                },
+                changeClasses(id, delta) {
+                    const s = this.schools.find(x => x.id === id);
+                    if (s && s.existingClasses + delta >= 0) {
+                        s.existingClasses += delta;
+                        this.saveSnapshot();
+                    }
+                },
+                openNewSchoolModal() {
+                    this.newSchool = { 
+                        name: '', 
+                        level: this.selectedSchoolLevel === '전체' ? '초등학교' : this.selectedSchoolLevel, 
+                        type: '특수학급', 
+                        classes: 1 
+                    };
+                    this.showNewSchoolModal = true;
+                },
+                confirmNewSchool() {
+                    if (!this.newSchool.name) { alert("학교명을 입력하세요."); return; }
+                    const id = `${this.newSchool.name}_${this.newSchool.type}`;
+                    if (this.schools.find(s => s.id === id)) { alert("이미 존재하는 학교입니다."); return; }
+                    
+                    this.schools.push({
+                        id: id,
+                        name: this.newSchool.name,
+                        level: this.newSchool.level,
+                        classType: this.newSchool.type,
+                        origClasses: 0,
+                        existingClasses: this.newSchool.classes,
+                        origCapacity: 0,
+                        isNew: true
+                    });
+                    this.showNewSchoolModal = false;
+                    this.saveSnapshot();
+                },
+                deleteSchool(id) {
+                    if (confirm("이 가상 신설 학교를 삭제하시겠습니까?")) {
+                        this.schools = this.schools.filter(s => s.id !== id);
+                        this.saveSnapshot();
+                    }
+                },
+                
+                syncGyeongeunChoices(level) {
+                    this.students.forEach(s => {
+                        const updateChoice = (field) => {
+                            let val = s[field];
+                            if (val && val.includes('경은학교') && val.includes('순회학급')) {
+                                let newName = '경은학교';
+                                if (level === '고등학교') newName = '경은학교(고등학교)';
+                                else if (level === '중학교') newName = '경은학교(중학교)';
+                                s[field] = `${newName}_순회학급`;
+                            }
+                        };
+                        updateChoice('closest_id');
+                        updateChoice('choice1_id');
+                        updateChoice('choice2_id');
+                        updateChoice('choice3_id');
+                    });
+                },
+
+                saveSnapshot() {
+                    const snapshot = {
+                        students: this.students.map(s => ({
+                            id: s.id, assignedSchool: s.assignedSchool, isFixed: s.isFixed, isStarred: s.isStarred, memo: s.memo
+                        })),
+                        schools: this.schools.map(s => ({
+                            id: s.id, existingClasses: s.existingClasses, isNew: s.isNew, origClasses: s.origClasses, origCapacity: s.origCapacity, name: s.name, level: s.level, classType: s.classType
+                        }))
+                    };
+                    const snapshotStr = JSON.stringify(snapshot);
+                    
+                    if (this.historyIndex >= 0 && this.history[this.historyIndex] === snapshotStr) return;
+                    if (this.historyIndex < this.history.length - 1) {
+                        this.history = this.history.slice(0, this.historyIndex + 1);
+                    }
+                    this.history.push(snapshotStr);
+                    if (this.history.length > 50) this.history.shift();
+                    else this.historyIndex++;
+                },
+                undo() {
+                    if (this.canUndo) {
+                        this.isUndoing = true;
+                        this.historyIndex--;
+                        this.applySnapshot();
+                        this.$nextTick(() => { this.isUndoing = false; });
+                    }
+                },
+                redo() {
+                    if (this.canRedo) {
+                        this.isUndoing = true;
+                        this.historyIndex++;
+                        this.applySnapshot();
+                        this.$nextTick(() => { this.isUndoing = false; });
+                    }
+                },
+                applySnapshot() {
+                    const snapshot = JSON.parse(this.history[this.historyIndex]);
+                    if (snapshot.students) {
+                        snapshot.students.forEach(snap => {
+                            const student = this.students.find(s => s.id === snap.id);
+                            if (student) {
+                                student.assignedSchool = snap.assignedSchool;
+                                student.isFixed = snap.isFixed;
+                                student.isStarred = snap.isStarred;
+                                student.memo = snap.memo;
+                            }
+                        });
+                    }
+                    if (snapshot.schools) {
+                        this.schools = snapshot.schools.map(s => ({...s}));
+                    }
+                },
+
+                setSort(key) {
+                    if (this.sortKey === key) {
+                        if (this.sortOrder === 1) {
+                            this.sortOrder = -1;
+                        } else {
+                            this.sortKey = null; 
+                            this.sortOrder = 1;
+                        }
+                    } else {
+                        this.sortKey = key;
+                        this.sortOrder = 1; 
+                    }
+                },
+
+                getBadgeClass(type) {
+                    if (type === '특수학급') return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+                    if (type === '순회학급') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                    if (type === '복합특수학급') return 'bg-purple-50 text-purple-700 border-purple-200';
+                    if (type === '일반학급') return 'bg-sky-50 text-sky-700 border-sky-200';
+                    return 'bg-slate-50 text-slate-600 border-slate-200';
+                },
+                getChoiceName(id) {
+                    if (!id) return '-';
+                    if (id === 'EXCLUDED' || id === 'PRE_ASSIGNED') return id;
+                    return id.split('_')[0];
+                },
+                getChoiceType(id) {
+                    if (!id || id === 'EXCLUDED' || id === 'PRE_ASSIGNED') return '';
+                    const parts = id.split('_');
+                    return parts.length >= 2 ? parts[1] : '특수학급';
+                },
+                
+                toggleMark(student, type) {
+                    if (type === 'fix') student.isFixed = !student.isFixed;
+                    if (type === 'star') student.isStarred = !student.isStarred;
+                    this.saveSnapshot();
+                },
+                toggleAccordion(id) {
+                    const idx = this.openAccordions.indexOf(id);
+                    if (idx === -1) this.openAccordions.push(id);
+                    else this.openAccordions.splice(idx, 1);
+                },
+                setFilter(filter) {
+                    this.activeFilter = filter;
+                },
+                getStudentsBySchool(id) {
+                    let list = this.processedListStudents.filter(s => s.assignedSchool === id);
+                    return list;
+                },
+                getRowClass(student) {
+                    let classes = [];
+                    if (student.isSelected) classes.push('bg-indigo-50/50');
+                    else classes.push('hover:bg-slate-50');
+                    if (student.isFixed) classes.push('bg-rose-50/20');
+                    return classes.join(' ');
+                },
+                getSelectClass(student) {
+                    if (student.assignedSchool === 'EXCLUDED') return 'text-amber-600 border-amber-300 bg-amber-50';
+                    if (student.assignedSchool === 'PRE_ASSIGNED') return 'text-indigo-600 border-indigo-300 bg-indigo-50';
+                    
+                    if (this.isMatch(student.choice1_id, student.assignedSchool) || 
+                        this.isMatch(student.choice2_id, student.assignedSchool) || 
+                        this.isMatch(student.choice3_id, student.assignedSchool)) {
+                        return 'text-indigo-700 border-indigo-200 bg-indigo-50/30';
+                    }
+                    if (this.isMatch(student.closest_id, student.assignedSchool)) {
+                        return 'text-emerald-700 border-emerald-200 bg-emerald-50/30';
+                    }
+                    return 'text-slate-600 border-slate-300';
+                },
+                getDistanceToAssigned(student) {
+                    if (!student.assignedSchool || student.assignedSchool === 'EXCLUDED' || student.assignedSchool === 'PRE_ASSIGNED') return null;
+                    if (this.isMatch(student.closest_id, student.assignedSchool)) return student.closestDist;
+                    if (this.isMatch(student.choice1_id, student.assignedSchool)) return student.c1_dist;
+                    if (this.isMatch(student.choice2_id, student.assignedSchool)) return student.c2_dist;
+                    if (this.isMatch(student.choice3_id, student.assignedSchool)) return student.c3_dist;
+                    return null;
+                },
+                isStudentCausingOvercrowding(student) {
+                    if (!student.assignedSchool || student.assignedSchool === 'EXCLUDED' || student.assignedSchool === 'PRE_ASSIGNED') return false;
+                    const sch = this.analyzedSchools.find(s => s.id === student.assignedSchool);
+                    return sch ? sch.isOvercrowded : false;
+                },
+
+                isOverflow(student) {
+                    return this.overflowingStudentIds.has(student.id);
+                },
+                getSchoolLevel(name) {
+                    if (!name || name === '-' || name === '') return '초등학교';
+                    if (name.includes('유치원') || name.includes('유') || name.includes('병설유') || name.includes('(유치)')) return '유치원';
+                    if (name.includes('중학교') || name.includes('중') || name.includes('(중등)')) return '중학교';
+                    if (name.includes('고등학교') || name.includes('고') || name.includes('(고등)')) return '고등학교';
+                    return '초등학교';
+                },
+                normalizeSchoolName(name) {
+                    if (!name) return "";
+                    let s = String(name).trim();
+
+                    s = s.replace(/\(복합\)/g, '').replace(/\(전일제\)/g, '').replace(/^남양주\s*/, '').trim();
+                    s = s.replace(/여중$/, '여자중학교').replace(/남중$/, '남자중학교');
+                    s = s.replace(/여고$/, '여자고등학교').replace(/남고$/, '남자고등학교');
+                    
+                    const parenMatch = s.match(/\((.*?)\)/);
+                    if (parenMatch) {
+                        const inner = parenMatch[1];
+                        if (!['유치', '초등', '중등', '고등', '유치원', '초등학교', '중학교', '고등학교'].includes(inner)) {
+                            s = s.replace(/\(.*?\)/g, '');
+                        }
+                    }
+                    
+                    s = s.trim();
+                    s = s.replace(/초병설유$/, '초등학교병설유치원');
+                    s = s.replace(/초병유$/, '초등학교병설유치원');
+                    s = s.replace(/초등학교병유$/, '초등학교병설유치원');
+                    s = s.replace(/초등학교병설유$/, '초등학교병설유치원');
+                    s = s.replace(/병설유$/, '병설유치원');
+                    s = s.replace(/병유$/, '병설유치원');
+                    
+                    if (s.endsWith('초')) s = s.replace(/초$/, '초등학교');
+                    else if (s.endsWith('중')) s = s.replace(/중$/, '중학교');
+                    else if (s.endsWith('고')) s = s.replace(/고$/, '고등학교');
+                    else if (s.endsWith('유') && !s.includes('유치원')) s = s.replace(/유$/, '유치원');
+                    
+                    return s.trim();
+                },
+                formatAssignedSchoolText(id) {
+                    if (id === 'EXCLUDED') return '배치 제외 (임시제외)';
+                    if (id === 'PRE_ASSIGNED') return '기배치 (특수학교 등)';
+                    if (!id) return '-';
+                    return id; 
+                },
+                isMatch(choiceId, assignedId) {
+                    if (!choiceId || !assignedId) return false;
+                    if (assignedId === 'EXCLUDED' || assignedId === 'PRE_ASSIGNED') return false;
+                    return choiceId === assignedId; 
+                },
+                handleFileUpload(event, type) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    Papa.parse(file, {
+                        encoding: this.csvEncoding,
+                        skipEmptyLines: true,
+                        complete: (results) => {
+                            if (type === 'schools') this.parseSchoolData(results.data);
+                            else if (type === 'students') this.parseStudentData(results.data);
+                        }
+                    });
+                },
+                parseSchoolData(rows) {
+                    const data = [];
+                    for (let i = 1; i < rows.length; i++) {
+                        const row = rows[i];
+                        if (row.length >= 4 && row[0]) {
+                            const rawSname = row[0];
+                            const sname = this.normalizeSchoolName(rawSname);
+                            
+                            let htype = row[1] ? row[1].trim() : '특수학급';
+                            
+                            if (String(rawSname).includes('(복합)') || String(rawSname).includes('(전일제)')) {
+                                htype = '복합특수학급';
+                            }
+                            
+                            if (htype === '-' || htype === '') htype = '특수학급';
+                            
+                            const hcount = parseFloat(row[2]) || 1;
+                            const capacity = parseFloat(row[3]) || 0; 
+                            const level = this.getSchoolLevel(sname);
+                            
+                            data.push({
+                                id: `${sname}_${htype}`, name: sname, level: level, classType: htype, 
+                                existingClasses: hcount, origClasses: hcount, 
+                                maxCapacity: capacity, origCapacity: capacity,
+                                isNew: false
+                            });
+                        }
+                    }
+                    if (data.length === 0) {
+                        alert("학교 T/O 데이터에서 유효한 학교 정보를 찾을 수 없습니다. 파일 양식을 확인해주세요.");
+                        return;
+                    }
+                    this.rawSchools = data;
+                    this.schools = JSON.parse(JSON.stringify(data));
+                    this.checkInitReady();
+                },
+
+                parseStudentData(rows) {
+                    if (rows.length < 4) {
+                        alert("입학 접수대장 파일 양식이 올바르지 않습니다. (최소 4행 이상 필요)");
+                        return;
+                    }
+                    
+                    let header0 = [], header1 = [], header2 = [];
+                    let last0 = '', last1 = '';
+                    
+                    for(let i = 0; i < rows[0].length; i++) {
+                        last0 = String(rows[0][i] || '').trim() || last0;
+                        last1 = String(rows[1][i] || '').trim() || last1;
+                        header0[i] = last0;
+                        header1[i] = last1;
+                        header2[i] = String(rows[2][i] || '').trim();
+                    }
+
+                    const getIdx = (l0, l1, l2) => {
+                        return header0.findIndex((v0, i) => {
+                            let v1 = header1[i];
+                            let v2 = header2[i];
+                            return (l0 === null || v0.includes(l0)) && 
+                                   (l1 === null || v1.includes(l1)) && 
+                                   (l2 === null || v2.includes(l2));
+                        });
+                    };
+
+                    const colMap = {
+                        currentSchool: getIdx('소속교', null, null),
+                        type: getIdx('학급유형', null, null),
+                        name: getIdx('성명', null, null),
+                        closest: getIdx('최근거리교', '학교명', null),
+                        closestType: getIdx('최근거리교', '배치유형', null),
+                        closestDist: getIdx('최근거리교', '거리', null),
+                        c1: getIdx('희망교', '1희망교', '학교명'),
+                        c1Type: getIdx('희망교', '1희망교', '배치유형'),
+                        c1Dist: getIdx('희망교', '1희망교', '거리'),
+                        c2: getIdx('희망교', '2희망교', '학교명'),
+                        c2Type: getIdx('희망교', '2희망교', '배치유형'),
+                        c2Dist: getIdx('희망교', '2희망교', '거리'),
+                        c3: getIdx('희망교', '3희망교', '학교명'),
+                        c3Type: getIdx('희망교', '3희망교', '배치유형'),
+                        c3Dist: getIdx('희망교', '3희망교', '거리')
+                    };
+
+                    if (colMap.name === -1 || colMap.closest === -1) {
+                        alert("파일에서 필수 열('성명', '최근거리교' 등)을 찾을 수 없습니다. 접수대장 양식의 헤더를 임의로 변경하지 않았는지 확인해주세요.");
+                        return;
+                    }
+
+                    const data = [];
+                    const generalSchools = new Set();
+                    
+                    for (let i = 3; i < rows.length; i++) {
+                        const row = rows[i];
+                        if (row.length > colMap.name && colMap.name !== -1) {
+                            const name = row[colMap.name];
+                            if (!name || String(name).trim() === '' || String(name).includes('성명')) continue;
+                            
+                            const closestStr = colMap.closest !== -1 && row[colMap.closest] ? String(row[colMap.closest]).trim() : '';
+                            if (!closestStr || closestStr === '-') continue; 
+                            
+                            const rawCurrentSchool = colMap.currentSchool !== -1 && row[colMap.currentSchool] ? String(row[colMap.currentSchool]).trim() : '-';
+                            const currentSchool = this.normalizeSchoolName(rawCurrentSchool);
+                            
+                            let stype = colMap.type !== -1 && row[colMap.type] ? String(row[colMap.type]).trim() : '특수학급';
+                            if (rawCurrentSchool.includes('(복합)') || rawCurrentSchool.includes('(전일제)')) {
+                                stype = '복합특수학급';
+                            }
+                            
+                            const getChoiceData = (sCol, tCol, dCol) => {
+                                if (sCol === -1) return { id: null, name: null, dist: null };
+                                const rawS = row[sCol] ? String(row[sCol]).trim() : '';
+                                if (!rawS || rawS === '-') return { id: null, name: null, dist: null };
+                                
+                                let s = this.normalizeSchoolName(rawS);
+                                if (!s) return { id: null, name: null, dist: null };
+                                
+                                let t = (tCol !== -1 && row[tCol]) ? String(row[tCol]).trim().replace('-', '특수학급') : '특수학급';
+                                if (t === '') t = '특수학급';
+                                
+                                if (rawS.includes('(복합)') || rawS.includes('(전일제)')) {
+                                    t = '복합특수학급';
+                                }
+                                
+                                if (s.includes('경은학교')) {
+                                    s = '경은학교'; 
+                                }
+
+                                if (t === '일반학급') generalSchools.add(s);
+                                let dist = dCol !== -1 ? parseFloat(row[dCol]) : null;
+                                return { id: `${s}_${t}`, name: s, dist: isNaN(dist) ? null : dist };
+                            };
+                            
+                            const closest = getChoiceData(colMap.closest, colMap.closestType, colMap.closestDist);
+                            const c1 = getChoiceData(colMap.c1, colMap.c1Type, colMap.c1Dist);
+                            const c2 = getChoiceData(colMap.c2, colMap.c2Type, colMap.c2Dist);
+                            const c3 = getChoiceData(colMap.c3, colMap.c3Type, colMap.c3Dist);
+                            
+                            data.push({
+                                id: `std_${i}_${Date.now()}`,
+                                name: String(name).trim(),
+                                currentSchool: currentSchool,
+                                type: stype,
+                                
+                                closest_id: closest.id,
+                                closestName: closest.name,
+                                closestDist: closest.dist,
+                                
+                                choice1_id: c1.id, c1_dist: c1.dist,
+                                choice2_id: c2.id, c2_dist: c2.dist,
+                                choice3_id: c3.id, c3_dist: c3.dist,
+                                
+                                assignedSchool: closest.id,
+                                isFixed: false, 
+                                isStarred: false,
+                                isSelected: false,
+                                memo: '' 
+                            });
+                        }
+                    }
+
+                    if (data.length === 0) {
+                        alert("파싱된 학생 데이터가 0명입니다. 빈 파일이거나 양식이 맞지 않습니다.");
+                        return;
+                    }
+
+                    this.generalSchoolsFromStudents = Array.from(generalSchools);
+                    this.rawStudents = data;
+                    this.students = JSON.parse(JSON.stringify(data));
+                    this.checkInitReady();
+                },
+                
+                checkInitReady() {
+                    if (this.rawSchools.length > 0 && this.rawStudents.length > 0) {
+                        this.initSimulation();
+                    }
+                },
+                
+                initSimulation() {
+                    this.generalSchoolsFromStudents.forEach(sname => {
+                        const level = this.getSchoolLevel(sname);
+                        const id = `${sname}_일반학급`;
+                        if (!this.schools.find(s => s.id === id)) {
+                            this.schools.push({ id: id, name: sname, level: level, classType: '일반학급', existingClasses: 0, origClasses: 0, maxCapacity: 999, origCapacity: 999, isNew: false });
+                        }
+                    });
+
+                    this.syncGyeongeunChoices(this.selectedSchoolLevel);
+
+                    const assignments1 = {};
+                    this.students.forEach(s => {
+                        let assigned = s.closest_id;
+                        if (assigned && assigned !== 'EXCLUDED' && assigned !== 'PRE_ASSIGNED') {
+                            if (!this.schools.find(sch => sch.id === assigned)) assigned = 'EXCLUDED';
+                        } else if (!assigned) {
+                            assigned = 'EXCLUDED';
+                        }
+                        assignments1[s.id] = { school: assigned, fix: false, star: false, memo: s.memo };
+                    });
+
+                    const assignments2 = {};
+                    this.students.forEach(s => {
+                        let assigned = s.choice1_id; 
+                        if (assigned && assigned !== 'EXCLUDED' && assigned !== 'PRE_ASSIGNED') {
+                            if (!this.schools.find(sch => sch.id === assigned)) assigned = 'EXCLUDED';
+                        } else if (!assigned) {
+                            assigned = 'EXCLUDED'; 
+                        }
+                        assignments2[s.id] = { school: assigned, fix: false, star: false, memo: s.memo };
+                    });
+
+                    this.scenarios = [
+                        { id: 'sc_default_1', name: '기본안1 (최근거리교 배치)', assignments: assignments1 },
+                        { id: 'sc_default_2', name: '기본안2 (1희망교 배치)', assignments: assignments2 }
+                    ];
+                    
+                    this.currentScenarioId = 'sc_default_1';
+                    this.students.forEach(s => {
+                        s.assignedSchool = assignments1[s.id].school;
+                        s.isFixed = false;
+                        s.isStarred = false;
+                    });
+                    
+                    this.dataLoaded = true;
+                    
+                    this.$nextTick(() => {
+                        this.history = [];
+                        this.historyIndex = -1;
+                        this.saveSnapshot();
+                    });
+                },
+                
+                downloadCurrentScenario() {
+                    const rows = [
+                        ["학생명", "유형", "현재재학교", "최근거리교", "최근거리(km)", "1희망", "2희망", "3희망", "최종배치교", "배치교학급변동", "신설교여부", "비고", "메모"]
+                    ];
+                    this.students.forEach(s => {
+                        let note = [];
+                        if (s.isFixed) note.push("고정");
+                        if (s.isStarred) note.push("확인필요");
+                        
+                        let assignedName = s.assignedSchool;
+                        if (assignedName === 'EXCLUDED') assignedName = '배치제외';
+                        else if (assignedName === 'PRE_ASSIGNED') assignedName = '기배치';
+                        else if (!assignedName) assignedName = '배치제외';
+                        
+                        let classChangeStr = '-';
+                        let isNewSch = 'X';
+                        const assignedObj = this.schools.find(sch => sch.id === s.assignedSchool);
+                        if (assignedObj) {
+                            const diff = assignedObj.existingClasses - assignedObj.origClasses;
+                            if (diff > 0) classChangeStr = `+${diff}`;
+                            else if (diff < 0) classChangeStr = `${diff}`;
+                            
+                            isNewSch = assignedObj.isNew ? 'O' : 'X';
+                        }
+
+                        rows.push([
+                            s.name, s.type, s.currentSchool,
+                            s.closest_id || '', s.closestDist || '',
+                            s.choice1_id || '', s.choice2_id || '', s.choice3_id || '',
+                            assignedName,
+                            classChangeStr, 
+                            isNewSch,       
+                            note.join(', '),
+                            s.memo || '' 
+                        ]);
+                    });
+
+                    const csvContent = "\uFEFF" + Papa.unparse(rows);
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const link = document.createElement("a");
+                    link.href = URL.createObjectURL(blob);
+                    link.setAttribute("download", `배치시나리오_${new Date().getTime()}.csv`);
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                },
+
+                loadBackupCSV(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    const fileName = file.name.replace(/\.[^/.]+$/, "");
+                    
+                    Papa.parse(file, {
+                        header: true,
+                        skipEmptyLines: true,
+                        complete: (results) => {
+                            let matchCount = 0;
+                            results.data.forEach(row => {
+                                const target = this.students.find(s => s.name === row['학생명'] && s.type === row['유형']);
+                                if (target) {
+                                    let loadedSchool = row['최종배치교'];
+                                    if (loadedSchool === '배치제외') loadedSchool = 'EXCLUDED';
+                                    else if (loadedSchool === '기배치') loadedSchool = 'PRE_ASSIGNED';
+                                    
+                                    target.assignedSchool = loadedSchool;
+                                    target.isFixed = row['비고'] ? row['비고'].includes('고정') : false;
+                                    target.isStarred = row['비고'] ? row['비고'].includes('확인필요') : false;
+                                    target.memo = row['메모'] || ''; 
+                                    matchCount++;
+                                }
+                            });
+                            alert(`${matchCount}명의 학생 배치 상태 및 메모가 성공적으로 복원되었습니다.`);
+                            
+                            const currentAssignments = {};
+                            this.students.forEach(s => currentAssignments[s.id] = { school: s.assignedSchool, fix: s.isFixed, star: s.isStarred, memo: s.memo });
+                            this.scenarios.push({ id: 'sc_backup_' + Date.now(), name: fileName, assignments: currentAssignments });
+                            this.currentScenarioId = this.scenarios[this.scenarios.length - 1].id;
+                            
+                            event.target.value = '';
+                        }
+                    });
+                },
+
+                saveNewScenario() {
+                    const name = prompt("새로운 시나리오 이름을 입력하세요", `시나리오 안 ${this.scenarios.length + 1}`);
+                    if (name) {
+                        const currentAssignments = {};
+                        this.students.forEach(s => currentAssignments[s.id] = { school: s.assignedSchool, fix: s.isFixed, star: s.isStarred, memo: s.memo });
+                        this.scenarios.push({ id: 'sc_' + Date.now(), name: name, assignments: currentAssignments });
+                        this.currentScenarioId = this.scenarios[this.scenarios.length - 1].id;
+                        alert('현재 상태가 저장되었습니다.');
+                    }
+                },
+                loadScenario() {
+                    const sc = this.scenarios.find(s => s.id === this.currentScenarioId);
+                    if (sc) {
+                        this.isUndoing = true;
+                        this.students.forEach(student => {
+                            if (sc.assignments[student.id]) {
+                                student.assignedSchool = sc.assignments[student.id].school;
+                                student.isFixed = sc.assignments[student.id].fix;
+                                student.isStarred = sc.assignments[student.id].star;
+                                student.memo = sc.assignments[student.id].memo || ''; 
+                                student.isSelected = false;
+                            }
+                        });
+                        this.$nextTick(() => { 
+                            this.isUndoing = false;
+                            this.saveSnapshot(); 
+                        });
+                    }
+                },
+                
+                resetToDefault() {
+                    if (confirm("현재 작업을 모두 버리고 '기본안1(최근거리교 배치)' 및 '초기 학급 상태'로 초기화하시겠습니까?")) {
+                        this.schools = this.schools.filter(s => !s.isNew);
+                        this.schools.forEach(s => {
+                            s.existingClasses = s.origClasses;
+                            s.maxCapacity = s.origCapacity;
+                        });
+
+                        this.currentScenarioId = 'sc_default_1';
+                        this.loadScenario();
+                    }
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
