@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>필요파일 다운로드</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { font-family: 'Noto Sans KR', sans-serif; background-color: #f8fafc; }
+    </style>
+</head>
+<body class="flex flex-col items-center min-h-screen p-6 overflow-y-auto custom-scrollbar">
+
+    <div class="bg-white rounded-3xl shadow-lg border border-slate-200 max-w-4xl w-full p-8 md:p-10 my-8">
+        <div class="text-center mb-10">
+            <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-rose-100 text-rose-600 text-3xl mb-4">
+                <i class="fa-solid fa-cloud-arrow-down"></i>
+            </div>
+            <h1 class="text-2xl font-black text-slate-800 mb-2">시뮬레이터 양식 다운로드 센터</h1>
+            <p class="text-sm text-slate-500 font-medium">시뮬레이터 구동에 필요한 공통 T/O 데이터와 학교급별 접수대장 서식을 다운로드하세요.</p>
+        </div>
+
+        <!-- 시뮬레이터 필수 구동 파일 섹션 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            <!-- 공통 파일: 학교 TO -->
+            <div class="md:col-span-2 border border-indigo-200 bg-indigo-50/30 rounded-2xl p-6 hover:shadow-md transition-all flex flex-col md:flex-row items-center justify-between gap-6">
+                <div class="flex-1">
+                    <div class="flex items-center gap-3 mb-3">
+                        <div class="bg-indigo-100 text-indigo-600 p-2.5 rounded-lg text-lg">
+                            <i class="fa-solid fa-school"></i>
+                        </div>
+                        <h2 class="text-lg font-black text-slate-800">학교 T/O 공통 데이터 (CSV)</h2>
+                    </div>
+                    <p class="text-xs text-slate-600 leading-relaxed">
+                        개별배치 및 신증설 시뮬레이터에 공통으로 사용되는 학교별 기준 정원, 학급 수, 재학생 현황 데이터입니다.
+                    </p>
+                </div>
+                <a href="학교 TO.csv" download class="shrink-0 w-full md:w-auto text-center bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-xl text-sm transition-colors shadow-sm">
+                    <i class="fa-solid fa-download mr-1"></i> 학교 TO.csv
+                </a>
+            </div>
+
+            <!-- 유치원 접수대장 -->
+            <div class="border border-slate-200 rounded-2xl p-5 hover:border-amber-300 hover:shadow-md transition-all flex flex-col">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="bg-amber-100 text-amber-600 p-2 rounded-lg">
+                        <i class="fa-solid fa-child-reaching"></i>
+                    </div>
+                    <h2 class="text-base font-black text-slate-800">유치원 입학 접수대장</h2>
+                </div>
+                <p class="text-[11px] text-slate-500 mb-5 flex-1">유치원 입학 예정자를 위한 시뮬레이터 전용 변환 서식입니다.</p>
+                <a href="27 유입 접수대장 변환 서식.xlsx" download class="block w-full text-center bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 rounded-xl text-xs transition-colors shadow-sm">
+                    <i class="fa-solid fa-file-excel mr-1"></i> 유입 접수대장 다운로드
+                </a>
+            </div>
+
+            <!-- 초등학교 접수대장 -->
+            <div class="border border-slate-200 rounded-2xl p-5 hover:border-emerald-300 hover:shadow-md transition-all flex flex-col">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="bg-emerald-100 text-emerald-600 p-2 rounded-lg">
+                        <i class="fa-solid fa-pencil"></i>
+                    </div>
+                    <h2 class="text-base font-black text-slate-800">초등학교 입학 접수대장</h2>
+                </div>
+                <p class="text-[11px] text-slate-500 mb-5 flex-1">초등학교 입학 예정자를 위한 시뮬레이터 전용 변환 서식입니다.</p>
+                <a href="27 초입 접수대장 변환 서식.xlsx" download class="block w-full text-center bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 rounded-xl text-xs transition-colors shadow-sm">
+                    <i class="fa-solid fa-file-excel mr-1"></i> 초입 접수대장 다운로드
+                </a>
+            </div>
+
+            <!-- 중학교 접수대장 -->
+            <div class="border border-slate-200 rounded-2xl p-5 hover:border-sky-300 hover:shadow-md transition-all flex flex-col">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="bg-sky-100 text-sky-600 p-2 rounded-lg">
+                        <i class="fa-solid fa-book-open"></i>
+                    </div>
+                    <h2 class="text-base font-black text-slate-800">중학교 입학 접수대장</h2>
+                </div>
+                <p class="text-[11px] text-slate-500 mb-5 flex-1">중학교 입학 예정자를 위한 시뮬레이터 전용 변환 서식입니다.</p>
+                <a href="27 중입 접수대장 변환 서식.xlsx" download class="block w-full text-center bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 rounded-xl text-xs transition-colors shadow-sm">
+                    <i class="fa-solid fa-file-excel mr-1"></i> 중입 접수대장 다운로드
+                </a>
+            </div>
+
+            <!-- 고등학교 접수대장 -->
+            <div class="border border-slate-200 rounded-2xl p-5 hover:border-purple-300 hover:shadow-md transition-all flex flex-col">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="bg-purple-100 text-purple-600 p-2 rounded-lg">
+                        <i class="fa-solid fa-graduation-cap"></i>
+                    </div>
+                    <h2 class="text-base font-black text-slate-800">고등학교 입학 접수대장</h2>
+                </div>
+                <p class="text-[11px] text-slate-500 mb-5 flex-1">고등학교 입학 예정자를 위한 시뮬레이터 전용 변환 서식입니다.</p>
+                <a href="2027 고입 접수대장 변환 서식.xlsx" download class="block w-full text-center bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 rounded-xl text-xs transition-colors shadow-sm">
+                    <i class="fa-solid fa-file-excel mr-1"></i> 고입 접수대장 다운로드
+                </a>
+            </div>
+        </div>
+
+        <!-- 경계선 -->
+        <div class="my-10 border-t border-slate-200 border-dashed"></div>
+
+        <!-- 자동화 툴 (Excel) 추가 섹션 -->
+        <div class="text-center mb-8">
+            <h2 class="text-xl font-black text-slate-800 flex items-center justify-center gap-2">
+                <i class="fa-solid fa-toolbox text-slate-400"></i> 행정 및 평가 자동화 툴 (Excel)
+            </h2>
+            <p class="text-xs text-slate-500 mt-2">웹에서 구동하기 어려운 수식이 포함된 엑셀 자동화 양식입니다. 다운로드 후 PC에서 사용하세요.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- TO 계산 시트 -->
+            <div class="border border-slate-200 rounded-2xl p-5 hover:border-blue-300 hover:shadow-md transition-all flex flex-col bg-slate-50">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="bg-blue-100 text-blue-600 p-2 rounded-lg">
+                        <i class="fa-solid fa-calculator"></i>
+                    </div>
+                    <h2 class="text-base font-black text-slate-800">학교별 TO 자동계산 시트</h2>
+                </div>
+                <p class="text-[11px] text-slate-500 mb-5 flex-1">'학교 TO.csv'를 생성할 때 사용합니다. ①특수교육대상자 배치현황 sheet의 이름을 '1'로 바꾸고 ②본 파일과 같은 폴더에 넣은 후, ③실행하시어 업데이트를 클릭하시면 됩니다.</p>
+                <a href="학교별 TO 계산.xlsx" download class="block w-full text-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-xs transition-colors shadow-sm">
+                    <i class="fa-solid fa-download mr-1"></i> TO 계산 시트 다운로드
+                </a>
+            </div>
+
+            <!-- 평정표 계산 시트 -->
+            <div class="border border-slate-200 rounded-2xl p-5 hover:border-pink-300 hover:shadow-md transition-all flex flex-col bg-slate-50">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="bg-pink-100 text-pink-600 p-2 rounded-lg">
+                        <i class="fa-solid fa-clipboard-check"></i>
+                    </div>
+                    <h2 class="text-base font-black text-slate-800">행동평정표 자동 산출기</h2>
+                </div>
+                <p class="text-[11px] text-slate-500 mb-5 flex-1">평정표(hwp) 파일의 'V' 체크 표시를 붙여넣으면, 자동으로 학생의 수준을 평가 기준에 맞춰 산출해 주는 엑셀 시트입니다.</p>
+                <a href="평정표 수행정도 계산.xlsx" download class="block w-full text-center bg-pink-600 hover:bg-pink-700 text-white font-bold py-2.5 rounded-xl text-xs transition-colors shadow-sm">
+                    <i class="fa-solid fa-download mr-1"></i> 평정표 산출기 다운로드
+                </a>
+            </div>
+        </div>
+        
+        <div class="mt-8 bg-slate-50 rounded-xl p-4 border border-slate-100 text-xs text-slate-500 text-center font-bold">
+            <i class="fa-solid fa-circle-info text-slate-400 mr-1"></i> 다운로드 받으신 접수대장 및 TO 파일은 작성 후 각 시뮬레이터의 좌측 메뉴에서 <strong>업로드</strong>하여 사용하실 수 있습니다.
+        </div>
+    </div>
+
+</body>
+</html>
