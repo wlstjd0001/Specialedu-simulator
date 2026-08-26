@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>행동평정 자동 산출기 A2</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Noto Sans KR', sans-serif; background-color: #f8fafc; }
+        [v-cloak] { display: none !important; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        .cell-input { width: 100%; height: 100%; border: none; outline: none; text-align: center; font-weight: bold; font-size: 0.85rem; background: transparent; cursor: pointer; }
+        .cell-input:focus { background-color: #e0e7ff; }
+        .cell-wrapper { padding: 0; height: 32px; border: 1px solid #e2e8f0; }
+        /* 핀 고정 색상을 다른 시뮬레이터와 동일하게 적색(Rose) 계열로 통일 */
+        .student-pinned { border-left: 4px solid #f43f5e !important; }
+        .student-important { background-color: #fef3c7 !important; border-color: #f59e0b !important; }
+    </style>
+</head>
+<body class="text-slate-800 h-screen overflow-hidden flex flex-col">
+    <div id="app" v-cloak class="h-full flex flex-col relative">
+        <!-- Header & Toolbar -->
+        <header class="bg-white shadow-sm border-b border-pink-200 z-20 shrink-0">
+            <div class="px-6 py-3 flex justify-between items-center">
+                <div class="flex items-center gap-3">
+                    <div class="bg-pink-600 text-white p-2.5 rounded-xl shadow-sm">
+                        <i class="fa-solid fa-clipboard-check text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-black text-slate-800 leading-tight">행동평정 자동 산출기 A2</h1>
+                    </div>
+                </div>
+                
+                <!-- 파일 관리 및 실행 취소 툴바 -->
+                <div class="flex items-center gap-4">
+                    <div class="flex bg-slate-100 rounded-lg p-1 shadow-sm border border-slate-200">
+                        <button @click="undo" :disabled="historyIndex <= 0" class="px-3 py-1 text-slate-600 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-slate-600 transition" title="뒤로 가기">
+                            <i class="fa-solid fa-rotate-left"></i>
+                        </button>
+                        <div class="w-px bg-slate-300 mx-1"></div>
+                        <button @click="redo" :disabled="historyIndex >= history.length - 1" class="px-3 py-1 text-slate-600 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-slate-600 transition" title="앞으로 가기">
+                            <i class="fa-solid fa-rotate-right"></i>
+                        </button>
+                    </div>
+
+                    <div class="flex gap-2">
+                        <label class="bg-teal-50 hover:bg-teal-100 text-teal-700 px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm border border-teal-200 cursor-pointer flex items-center">
+                            <i class="fa-solid fa-folder-open mr-1"></i> 파일 열기
+                            <input type="file" accept=".json" @change="importData" class="hidden">
+                        </label>
+                        <button @click="exportData" class="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm border border-teal-700 flex items-center">
+                            <i class="fa-solid fa-save mr-1"></i> 데이터 저장
+                        </button>
+                        <button @click="exportCSV" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm border border-emerald-700 flex items-center">
+                            <i class="fa-solid fa-file-csv mr-1"></i> 엑셀(CSV) 다운로드
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="flex-1 flex overflow-hidden bg-slate-50">
+            <!-- Sidebar (Student List) -->
+            <aside class="w-72 bg-white shadow-lg z-10 flex flex-col border-r border-slate-200">
+                <div class="p-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" v-model="selectAll" @change="toggleSelectAll" class="rounded text-pink-600 focus:ring-pink-500 cursor-pointer">
+                        <h2 class="font-black text-slate-700 text-sm">목록 ({{ students.length }}명)</h2>
+                    </div>
+                    <div class="flex gap-1">
+                        <button @click="deleteSelected" v-if="selectedCount > 0" class="text-[10px] bg-rose-100 text-rose-700 px-2 py-1 rounded font-bold hover:bg-rose-200 transition">선택삭제</button>
+                        <button @click="addStudent" class="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-bold hover:bg-indigo-200 transition"><i class="fa-solid fa-plus"></i> 추가</button>
+                    </div>
+                </div>
+                
+                <div class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
+                    <div v-for="(student, index) in sortedStudents" :key="student.id" 
+                         @click="selectStudent(student.id)"
+                         class="p-2 rounded-lg cursor-pointer transition-all border flex items-center gap-2 group"
+                         :class="[
+                            currentStudent && currentStudent.id === student.id ? 'bg-pink-50 border-pink-300 shadow-sm' : 'border-slate-100 hover:bg-slate-50',
+                            student.isPinned ? 'student-pinned' : '',
+                            student.isImportant ? 'student-important' : ''
+                         ]">
+                        
+                        <input type="checkbox" v-model="student.selected" @click.stop class="rounded text-pink-600 focus:ring-pink-500 cursor-pointer">
+                        
+                        <div class="flex-1 flex flex-col min-w-0">
+                            <span class="font-bold text-sm truncate" :class="currentStudent && currentStudent.id === student.id ? 'text-pink-700' : 'text-slate-700'">
+                                {{ student.name || `학생 ${index + 1}` }}
+                            </span>
+                            <span class="text-[10px] text-slate-400 font-medium">{{ student.type }}</span>
+                        </div>
+
+                        <div class="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                            <!-- 핀 색상 통일 (text-rose-500) -->
+                            <button @click.stop="togglePin(student)" :class="student.isPinned ? 'text-rose-500' : 'text-slate-300 hover:text-rose-400'">
+                                <i class="fa-solid fa-thumbtack text-xs"></i>
+                            </button>
+                            <button @click.stop="toggleImportant(student)" :class="student.isImportant ? 'text-amber-500' : 'text-slate-300 hover:text-amber-400'">
+                                <i class="fa-solid fa-star text-xs"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Dashboard Center Area -->
+            <div class="flex-1 flex flex-col overflow-hidden" v-if="currentStudent">
+                <!-- Top Info Bar -->
+                <div class="bg-white p-4 border-b border-slate-200 shrink-0 flex items-center gap-6 shadow-sm z-10">
+                    <div class="flex items-center gap-2">
+                        <label class="text-xs font-bold text-slate-500">학생명</label>
+                        <input type="text" v-model="currentStudent.name" class="border border-slate-300 rounded p-1.5 text-sm font-black text-slate-800 focus:ring-1 focus:ring-pink-500 outline-none w-32">
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <label class="text-xs font-bold text-slate-500">평가기준 (학교급)</label>
+                        <select v-model="currentStudent.type" @change="resetMarks" class="border border-slate-300 rounded p-1.5 text-sm font-bold bg-white focus:ring-1 focus:ring-pink-500 outline-none">
+                            <option value="초입">초등학교 입학 (65문항)</option>
+                            <option value="중입">중학교 입학 (72문항)</option>
+                        </select>
+                    </div>
+                    <div class="flex gap-2">
+                        <!-- 일괄 붙여넣기 전용 버튼 신설 -->
+                        <button @click="showPasteModal = true" class="bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm border border-indigo-200">
+                            <i class="fa-solid fa-paste mr-1"></i> 한글/엑셀 일괄 붙여넣기
+                        </button>
+                        <button @click="clearCurrentMarks" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm border border-slate-200">
+                            <i class="fa-solid fa-eraser mr-1"></i> 현재 입력 초기화
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Content Area: Results & Grid -->
+                <div class="flex-1 overflow-hidden flex flex-col md:flex-row">
+                    <!-- Left: Results Summary -->
+                    <div class="w-full md:w-1/3 bg-white border-r border-slate-200 flex flex-col overflow-y-auto custom-scrollbar p-5">
+                        <h3 class="font-black text-slate-700 mb-4 flex items-center gap-2">
+                            <i class="fa-solid fa-chart-pie text-pink-500"></i> 영역별 산출 결과
+                        </h3>
+                        <div class="space-y-3">
+                            <div v-for="res in calculatedResults" :key="res.subDomain" class="border rounded-xl p-3 flex items-center justify-between shadow-sm" :class="getResultCardClass(res.result)">
+                                <div class="flex flex-col">
+                                    <span class="text-[10px] font-bold opacity-70 mb-0.5">{{ res.domain }}</span>
+                                    <span class="text-sm font-black">{{ res.subDomain }}</span>
+                                </div>
+                                <div class="text-2xl font-black w-12 text-center">
+                                    {{ res.result }}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Input Grid -->
+                    <div class="flex-1 overflow-y-auto custom-scrollbar p-5 bg-slate-50 relative">
+                        <table class="w-full max-w-3xl mx-auto bg-white border-collapse shadow-sm">
+                            <thead class="sticky top-0 z-10 bg-slate-100 shadow-sm text-xs text-slate-600 font-black">
+                                <tr>
+                                    <th class="border border-slate-200 py-2 px-2 w-16">대영역</th>
+                                    <th class="border border-slate-200 py-2 px-2 w-24">세부영역</th>
+                                    <th class="border border-slate-200 py-2 px-2 w-12">문항</th>
+                                    <th class="border border-slate-200 py-2 px-2 w-20 text-rose-600">X<br><span class="text-[9px] font-normal">(전반적 도움)</span></th>
+                                    <th class="border border-slate-200 py-2 px-2 w-20 text-amber-600">△<br><span class="text-[9px] font-normal">(부분적 도움)</span></th>
+                                    <th class="border border-slate-200 py-2 px-2 w-20 text-emerald-600">O<br><span class="text-[9px] font-normal">(독립적 수행)</span></th>
+                                </tr>
+                            </thead>
+                            <tbody class="text-[11px] text-center">
+                                <tr v-for="(row, idx) in currentGridInfo" :key="idx" class="hover:bg-slate-50 transition-colors">
+                                    <td class="border border-slate-200 bg-slate-50 font-bold text-slate-500" v-if="row.showDomain" :rowspan="row.domainSpan">{{ row.domain }}</td>
+                                    <td class="border border-slate-200 bg-slate-50 font-bold text-slate-600" v-if="row.showSub" :rowspan="row.subSpan">{{ row.subDomain }}</td>
+                                    <td class="border border-slate-200 font-bold bg-slate-50 text-slate-400">{{ row.qNum }}</td>
+                                    <td class="cell-wrapper bg-white">
+                                        <input type="text" v-model="currentStudent.marks[idx][0]" class="cell-input text-rose-500" @click="toggleMark(idx, 0)" @change="recordHistory">
+                                    </td>
+                                    <td class="cell-wrapper bg-white">
+                                        <input type="text" v-model="currentStudent.marks[idx][1]" class="cell-input text-amber-500" @click="toggleMark(idx, 1)" @change="recordHistory">
+                                    </td>
+                                    <td class="cell-wrapper bg-white">
+                                        <input type="text" v-model="currentStudent.marks[idx][2]" class="cell-input text-emerald-500" @click="toggleMark(idx, 2)" @change="recordHistory">
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div class="h-20"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- 일괄 붙여넣기 전용 모달창 -->
+        <div v-if="showPasteModal" class="fixed inset-0 bg-slate-900 bg-opacity-40 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden border border-slate-200">
+                <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                    <h3 class="font-black text-slate-800 text-lg flex items-center gap-2">
+                        <i class="fa-solid fa-paste text-indigo-600"></i> 한글/엑셀 데이터 일괄 붙여넣기
+                    </h3>
+                    <button @click="showPasteModal = false" class="text-slate-400 hover:text-slate-600 transition"><i class="fa-solid fa-xmark text-xl"></i></button>
+                </div>
+                <div class="p-6 flex-1 flex flex-col gap-5">
+                    <div class="bg-indigo-50 text-indigo-800 text-sm p-4 rounded-xl border border-indigo-100 font-bold leading-relaxed shadow-sm">
+                        <i class="fa-solid fa-circle-info mr-1 text-indigo-500"></i> 한글(HWP)이나 엑셀 파일에서 <b>[전반적 도움], [부분적 도움], [독립적 수행]</b> 3개의 응답 열만 아래로 쭉 드래그하여 복사한 뒤, 빈칸에 붙여넣고 [적용하기]를 누르세요.<br>
+                        <span class="text-xs text-indigo-500 font-normal mt-1 block">* 보이지 않는 쓰레기 값이나 빈 줄로 인한 오류를 자동으로 잡아줍니다.</span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <label class="text-sm font-black text-slate-700">시작 문항 지정 :</label>
+                        <input type="number" v-model.number="pasteStartIdx" min="1" max="72" class="border-2 border-slate-200 rounded-lg px-3 py-1.5 w-20 text-center font-bold text-indigo-700 focus:border-indigo-500 focus:ring-0 outline-none">
+                        <span class="text-sm text-slate-500 font-medium">번 문항부터 붙여넣기</span>
+                    </div>
+                    <textarea v-model="pasteText" class="w-full h-56 border-2 border-slate-200 rounded-xl p-4 text-sm focus:border-indigo-500 outline-none resize-none custom-scrollbar bg-slate-50" placeholder="여기를 클릭하고 복사한 데이터를 붙여넣기(Ctrl+V) 하세요..."></textarea>
+                </div>
+                <div class="p-5 border-t border-slate-100 bg-white flex justify-end gap-3">
+                    <button @click="showPasteModal = false" class="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-bold transition">취소</button>
+                    <button @click="applyPaste" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold transition flex items-center gap-2 shadow-sm"><i class="fa-solid fa-check"></i> 텍스트 분석 및 적용하기</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        const schema = {
+            '초입': [
+                { domain: '인지', sub: '학습준비', count: 10 },
+                { domain: '인지', sub: '의사소통', count: 9 },
+                { domain: '기본생활', sub: '보행기술', count: 9 },
+                { domain: '기본생활', sub: '신변처리', count: 9 },
+                { domain: '기본생활', sub: '식사도구 이용', count: 9 },
+                { domain: '기본생활', sub: '착탈의', count: 10 },
+                { domain: '기본생활', sub: '사회적 능력', count: 9 }
+            ],
+            '중입': [
+                { domain: '인지', sub: '학습준비', count: 15 },
+                { domain: '인지', sub: '의사소통', count: 11 },
+                { domain: '기본생활', sub: '보행기술', count: 10 },
+                { domain: '기본생활', sub: '신변처리', count: 9 },
+                { domain: '기본생활', sub: '식사도구 이용', count: 10 },
+                { domain: '기본생활', sub: '착탈의', count: 10 },
+                { domain: '기본생활', sub: '사회적 능력', count: 7 }
+            ]
+        };
+
+        createApp({
+            data() {
+                return {
+                    students: [],
+                    currentStudentId: null,
+                    selectAll: false,
+                    
+                    // Undo/Redo 관련
+                    history: [],
+                    historyIndex: -1,
+                    isHistoryAction: false,
+                    
+                    // 일괄 붙여넣기 모달 관련
+                    showPasteModal: false,
+                    pasteText: '',
+                    pasteStartIdx: 1
+                }
+            },
+            mounted() {
+                const saved = localStorage.getItem('a2_simulator_data');
+                if (saved) {
+                    try {
+                        this.students = JSON.parse(saved);
+                        if(this.students.length > 0) {
+                            this.currentStudentId = this.students[0].id;
+                        }
+                    } catch(e) {
+                        this.initDefault();
+                    }
+                } else {
+                    this.initDefault();
+                }
+                this.recordHistory(true);
+            },
+            watch: {
+                students: {
+                    handler(newVal) {
+                        localStorage.setItem('a2_simulator_data', JSON.stringify(newVal));
+                    },
+                    deep: true
+                }
+            },
+            computed: {
+                currentStudent() {
+                    return this.students.find(s => s.id === this.currentStudentId) || this.students[0];
+                },
+                sortedStudents() {
+                    return [...this.students].sort((a, b) => {
+                        if (a.isPinned === b.isPinned) return 0;
+                        return a.isPinned ? -1 : 1;
+                    });
+                },
+                selectedCount() {
+                    return this.students.filter(s => s.selected).length;
+                },
+                currentGridInfo() {
+                    if (!this.currentStudent) return [];
+                    const type = this.currentStudent.type;
+                    const sections = schema[type];
+                    const rows = [];
+                    let qNum = 1;
+                    let domainCache = {};
+
+                    sections.forEach(sec => {
+                        for (let i = 0; i < sec.count; i++) {
+                            const isFirstSub = i === 0;
+                            let isFirstDomain = false;
+                            let domainSpan = 0;
+                            if (!domainCache[sec.domain]) {
+                                isFirstDomain = true;
+                                domainSpan = sections.filter(s => s.domain === sec.domain).reduce((sum, s) => sum + s.count, 0);
+                                domainCache[sec.domain] = true;
+                            }
+
+                            rows.push({
+                                domain: sec.domain,
+                                showDomain: isFirstDomain,
+                                domainSpan: domainSpan,
+                                subDomain: sec.sub,
+                                showSub: isFirstSub,
+                                subSpan: sec.count,
+                                qNum: qNum++
+                            });
+                        }
+                    });
+                    return rows;
+                },
+                calculatedResults() {
+                    if (!this.currentStudent) return [];
+                    const type = this.currentStudent.type;
+                    const sections = schema[type];
+                    const marks = this.currentStudent.marks;
+                    const results = [];
+                    let rowCursor = 0;
+
+                    sections.forEach(sec => {
+                        let count2 = 0;
+                        let count3 = 0;
+
+                        for (let i = 0; i < sec.count; i++) {
+                            const row = marks[rowCursor];
+                            if (this.hasMark(row[1])) count2++;
+                            if (this.hasMark(row[2])) count3++;
+                            rowCursor++;
+                        }
+
+                        const sum = count2 + count3;
+                        let finalMark = '-';
+
+                        if (sum > 0) {
+                            if (sum <= 2) finalMark = '×';
+                            else if (sum >= 3 && sum <= 5) finalMark = '△';
+                            else if (sum >= 6) {
+                                if (count3 > count2) finalMark = '○';
+                                else if (count2 > count3) finalMark = '△';
+                                else finalMark = '조정 필요';
+                            }
+                        }
+
+                        results.push({
+                            domain: sec.domain,
+                            subDomain: sec.sub,
+                            result: finalMark
+                        });
+                    });
+
+                    return results;
+                }
+            },
+            methods: {
+                recordHistory(isInit = false) {
+                    if (this.isHistoryAction) {
+                        this.isHistoryAction = false;
+                        return;
+                    }
+                    if (!isInit) {
+                        this.history = this.history.slice(0, this.historyIndex + 1);
+                    }
+                    this.history.push(JSON.stringify(this.students));
+                    this.historyIndex++;
+                },
+                undo() {
+                    if (this.historyIndex > 0) {
+                        this.isHistoryAction = true;
+                        this.historyIndex--;
+                        this.students = JSON.parse(this.history[this.historyIndex]);
+                        this.ensureCurrentStudentExists();
+                    }
+                },
+                redo() {
+                    if (this.historyIndex < this.history.length - 1) {
+                        this.isHistoryAction = true;
+                        this.historyIndex++;
+                        this.students = JSON.parse(this.history[this.historyIndex]);
+                        this.ensureCurrentStudentExists();
+                    }
+                },
+                ensureCurrentStudentExists() {
+                    if (!this.students.find(s => s.id === this.currentStudentId) && this.students.length > 0) {
+                        this.currentStudentId = this.students[0].id;
+                    }
+                },
+                initDefault() {
+                    this.students = [];
+                    this.addStudent();
+                },
+                getTotalQuestions(type) {
+                    return schema[type].reduce((sum, sec) => sum + sec.count, 0);
+                },
+                createEmptyMarks(type) {
+                    const total = this.getTotalQuestions(type);
+                    return Array(total).fill().map(() => ['', '', '']);
+                },
+                addStudent() {
+                    const type = '초입';
+                    const newId = 'std_' + Date.now();
+                    this.students.push({
+                        id: newId,
+                        name: '',
+                        type: type,
+                        marks: this.createEmptyMarks(type),
+                        isPinned: false,
+                        isImportant: false,
+                        selected: false
+                    });
+                    this.currentStudentId = newId;
+                    this.recordHistory();
+                },
+                selectStudent(id) {
+                    this.currentStudentId = id;
+                },
+                toggleSelectAll() {
+                    this.students.forEach(s => s.selected = this.selectAll);
+                },
+                deleteSelected() {
+                    if (confirm(`선택한 ${this.selectedCount}명의 학생 데이터를 삭제하시겠습니까?`)) {
+                        this.students = this.students.filter(s => !s.selected);
+                        this.selectAll = false;
+                        if (this.students.length === 0) this.addStudent();
+                        else this.ensureCurrentStudentExists();
+                        this.recordHistory();
+                    }
+                },
+                togglePin(student) {
+                    student.isPinned = !student.isPinned;
+                    this.recordHistory();
+                },
+                toggleImportant(student) {
+                    student.isImportant = !student.isImportant;
+                    this.recordHistory();
+                },
+                resetMarks() {
+                    if (confirm('학교급을 변경하면 현재 입력된 체크 데이터가 모두 초기화됩니다. 변경하시겠습니까?')) {
+                        this.currentStudent.marks = this.createEmptyMarks(this.currentStudent.type);
+                        this.recordHistory();
+                    }
+                },
+                clearCurrentMarks() {
+                    if (confirm('현재 학생의 모든 입력 데이터를 지우시겠습니까?')) {
+                        this.currentStudent.marks = this.createEmptyMarks(this.currentStudent.type);
+                        this.recordHistory();
+                    }
+                },
+                hasMark(val) {
+                    if (val === null || val === undefined) return false;
+                    return String(val).trim().length > 0;
+                },
+                
+                // 클릭 UX 개선: 빈칸을 클릭할 때만 'V'가 입력되며 기존 값 초기화
+                // '변동' 등 이미 입력된 칸을 클릭할 때는 값을 날리지 않고 수정(포커스)할 수 있도록 유지
+                toggleMark(r, c) {
+                    const current = this.currentStudent.marks[r][c];
+                    
+                    if (this.hasMark(current)) {
+                        // 이미 체크된 칸인데 값 형태가 단순 'V'일 경우 클릭하면 지워지게 함 (빠른 취소 기능)
+                        if (current.toUpperCase() === 'V') {
+                            this.currentStudent.marks[r][c] = '';
+                            this.recordHistory();
+                        }
+                        // 그 외 직접 타이핑한 문자(예: '변동')인 경우에는 지워지지 않음 -> 클릭 후 자유롭게 텍스트 편집 가능
+                    } else {
+                        // 빈 칸을 클릭하면 다른 칸을 비우고 이 칸에 'V'를 채움
+                        this.currentStudent.marks[r] = ['', '', '']; 
+                        this.currentStudent.marks[r][c] = 'V';
+                        this.recordHistory();
+                    }
+                },
+
+                // 한글/엑셀 일괄 붙여넣기 파싱 로직 (특수문자 완벽 제거)
+                applyPaste() {
+                    if (!this.pasteText.trim()) {
+                        alert('붙여넣을 텍스트가 없습니다.');
+                        return;
+                    }
+
+                    // HWP의 보이지 않는 공백, 탭 찌꺼기 등을 깔끔하게 분리
+                    const rows = this.pasteText.replace(/\r/g, '').split('\n');
+                    let startRow = (this.pasteStartIdx || 1) - 1; 
+                    if (startRow < 0) startRow = 0;
+
+                    let currentRow = startRow;
+                    const maxRows = this.currentStudent.marks.length;
+                    let appliedCount = 0;
+
+                    for (let i = 0; i < rows.length; i++) {
+                        if (currentRow >= maxRows) break;
+
+                        // 한글(HWP) 표 복사 시 흔히 섞여 들어오는 폭 없는 공백이나 특수 띄어쓰기(\u200B 등)를 원천 차단
+                        const rowStr = rows[i];
+                        
+                        // 아예 텅 빈 줄(찌꺼기)이면 건너뜀
+                        if(rowStr.trim() === '' && !rowStr.includes('\t')) continue;
+
+                        const cols = rowStr.split('\t');
+                        
+                        // 각 열의 데이터 정제
+                        let c0 = cols[0] ? cols[0].replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '').trim() : '';
+                        let c1 = cols[1] ? cols[1].replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '').trim() : '';
+                        let c2 = cols[2] ? cols[2].replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '').trim() : '';
+
+                        // 기존 마크 비우기
+                        this.currentStudent.marks[currentRow] = ['', '', ''];
+                        
+                        // 값이 있는 곳에만 채워넣기
+                        if (c0) this.currentStudent.marks[currentRow][0] = c0;
+                        if (c1) this.currentStudent.marks[currentRow][1] = c1;
+                        if (c2) this.currentStudent.marks[currentRow][2] = c2;
+
+                        currentRow++;
+                        appliedCount++;
+                    }
+
+                    this.pasteText = '';
+                    this.showPasteModal = false;
+                    this.recordHistory();
+                    alert(`${appliedCount}개 문항에 데이터가 정상적으로 맵핑되었습니다.`);
+                },
+
+                getResultCardClass(result) {
+                    if (result === '○') return 'bg-emerald-50 border-emerald-200 text-emerald-700';
+                    if (result === '△') return 'bg-amber-50 border-amber-200 text-amber-700';
+                    if (result === '×') return 'bg-rose-50 border-rose-200 text-rose-700';
+                    if (result === '조정 필요') return 'bg-purple-50 border-purple-200 text-purple-700';
+                    return 'bg-slate-50 border-slate-200 text-slate-400';
+                },
+
+                // 파일 I/O
+                exportData() {
+                    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(this.students));
+                    const downloadAnchorNode = document.createElement('a');
+                    downloadAnchorNode.setAttribute("href",     dataStr);
+                    downloadAnchorNode.setAttribute("download", "A2_Backup_Data.json");
+                    document.body.appendChild(downloadAnchorNode);
+                    downloadAnchorNode.click();
+                    downloadAnchorNode.remove();
+                },
+                importData(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+                    
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const parsed = JSON.parse(e.target.result);
+                            if (Array.isArray(parsed)) {
+                                this.students = parsed;
+                                this.currentStudentId = this.students[0].id;
+                                this.recordHistory(true);
+                                alert('데이터를 성공적으로 불러왔습니다.');
+                            }
+                        } catch (err) {
+                            alert('잘못된 파일 형식입니다.');
+                        }
+                    };
+                    reader.readAsText(file);
+                    event.target.value = ''; 
+                },
+                exportCSV() {
+                    if (!this.currentStudent) return;
+                    
+                    let csvContent = "\uFEFF"; 
+                    csvContent += "학생명,학교급\n";
+                    csvContent += `${this.currentStudent.name || '미상'},${this.currentStudent.type}\n\n`;
+                    csvContent += "대영역,세부영역,문항번호,전반적도움(1점),부분적도움(2점),독립적수행(3점)\n";
+                    
+                    this.currentGridInfo.forEach((row, idx) => {
+                        const marks = this.currentStudent.marks[idx];
+                        const m0 = marks[0] ? `"${marks[0]}"` : "";
+                        const m1 = marks[1] ? `"${marks[1]}"` : "";
+                        const m2 = marks[2] ? `"${marks[2]}"` : "";
+                        
+                        csvContent += `"${row.domain}","${row.subDomain}",${row.qNum},${m0},${m1},${m2}\n`;
+                    });
+
+                    csvContent += "\n영역별 산출 결과\n대영역,세부영역,결과\n";
+                    this.calculatedResults.forEach(res => {
+                        csvContent += `"${res.domain}","${res.subDomain}","${res.result}"\n`;
+                    });
+
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const link = document.createElement("a");
+                    const url = URL.createObjectURL(blob);
+                    link.setAttribute("href", url);
+                    link.setAttribute("download", `행동평정결과_${this.currentStudent.name || '학생'}.csv`);
+                    link.style.visibility = 'hidden';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
