@@ -1,0 +1,1004 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>행동평정 자동 산출기 A8</title>
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- PapaParse -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Noto Sans KR', sans-serif; background-color: #f8fafc; }
+        [v-cloak] { display: none !important; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        .cell-input { width: 100%; height: 100%; border: none; outline: none; text-align: center; font-weight: bold; font-size: 0.85rem; background: transparent; cursor: pointer; }
+        .cell-input:focus { background-color: #e0e7ff; }
+        .cell-wrapper { padding: 0; height: 32px; border: 1px solid #e2e8f0; }
+        .student-pinned { border-left: 4px solid #f43f5e !important; }
+        .student-important { background-color: #fef3c7 !important; border-color: #f59e0b !important; }
+        
+        /* 4개 열 집중 하이라이트 CSS */
+        .highlight-cell {
+            background-color: #fce7f3 !important; 
+            border-top: 2px solid #ec4899 !important;
+            border-bottom: 2px solid #ec4899 !important;
+            transition: all 0.2s;
+        }
+        .highlight-cell-left { border-left: 2px solid #ec4899 !important; }
+        .highlight-cell-right { border-right: 2px solid #ec4899 !important; }
+    </style>
+</head>
+<body class="text-slate-800 h-screen overflow-hidden flex flex-col">
+    <div id="app" v-cloak class="h-full flex flex-col relative">
+        <!-- Header & Toolbar -->
+        <header class="bg-white shadow-sm border-b border-pink-200 z-20 shrink-0">
+            <div class="px-6 py-3 flex justify-between items-center gap-4">
+                <div class="flex items-center gap-3 shrink-0">
+                    <div class="bg-pink-600 text-white p-2.5 rounded-xl shadow-sm">
+                        <i class="fa-solid fa-clipboard-check text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-black text-slate-800 leading-tight">행동평정 산출기 A8</h1>
+                    </div>
+                </div>
+
+                <!-- 메인 탭 전환 -->
+                <div class="flex bg-slate-100 p-1 rounded-xl shadow-sm border border-slate-200 flex-1 max-w-sm justify-center">
+                    <button @click="mainTab = 'input'" :class="mainTab === 'input' ? 'bg-white text-pink-600 shadow-sm font-black' : 'text-slate-500 hover:text-slate-700 font-bold'" class="flex-1 px-4 py-1.5 rounded-lg text-sm transition-all flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-pen-to-square"></i> 개별 평정 입력
+                    </button>
+                    <button @click="mainTab = 'stats'" :class="mainTab === 'stats' ? 'bg-white text-indigo-600 shadow-sm font-black' : 'text-slate-500 hover:text-slate-700 font-bold'" class="flex-1 px-4 py-1.5 rounded-lg text-sm transition-all flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-chart-column"></i> 전체 통계 분석
+                    </button>
+                </div>
+                
+                <div class="flex items-center gap-4 shrink-0">
+                    <!-- Undo/Redo 버튼 -->
+                    <div class="flex bg-slate-100 rounded-lg p-1 shadow-sm border border-slate-200">
+                        <button @click="undo" :disabled="historyIndex <= 0" class="px-3 py-1 text-slate-600 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-slate-600 transition" title="뒤로 가기">
+                            <i class="fa-solid fa-rotate-left"></i>
+                        </button>
+                        <div class="w-px bg-slate-300 mx-1"></div>
+                        <button @click="redo" :disabled="historyIndex >= history.length - 1" class="px-3 py-1 text-slate-600 hover:text-indigo-600 disabled:opacity-30 disabled:hover:text-slate-600 transition" title="앞으로 가기">
+                            <i class="fa-solid fa-rotate-right"></i>
+                        </button>
+                    </div>
+
+                    <div class="flex gap-2">
+                        <label class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm border border-indigo-200 cursor-pointer flex items-center gap-1">
+                            <i class="fa-solid fa-folder-open"></i> 전체 학생 백업 열기
+                            <input type="file" accept=".csv" @change="importBackupCSV" class="hidden">
+                        </label>
+                        <button @click="exportBackupCSV" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm border border-indigo-700 flex items-center gap-1">
+                            <i class="fa-solid fa-save"></i> 전체 학생 백업 저장
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- 탭 1: 개별 평정 입력 모드 -->
+        <main v-if="mainTab === 'input'" class="flex-1 flex overflow-hidden bg-slate-50">
+            <!-- Sidebar (Student List) -->
+            <aside class="w-72 bg-white shadow-lg z-10 flex flex-col border-r border-slate-200 shrink-0">
+                <div class="p-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" v-model="selectAll" @change="toggleSelectAll" class="rounded text-pink-600 focus:ring-pink-500 cursor-pointer">
+                        <h2 class="font-black text-slate-700 text-sm">목록 ({{ students.length }}명)</h2>
+                    </div>
+                    <div class="flex gap-1">
+                        <button @click="deleteSelected" v-if="selectedCount > 0" class="text-[10px] bg-rose-100 text-rose-700 px-2 py-1 rounded font-bold hover:bg-rose-200 transition">선택삭제</button>
+                        <button @click="addStudent" class="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-bold hover:bg-indigo-200 transition"><i class="fa-solid fa-plus"></i> 추가</button>
+                    </div>
+                </div>
+                
+                <div class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
+                    <div v-for="(student, index) in sortedStudents" :key="student.id" 
+                         @click="selectStudent(student.id)"
+                         class="p-2 rounded-lg cursor-pointer transition-all border flex items-center gap-2 group"
+                         :class="[
+                            currentStudent && currentStudent.id === student.id ? 'bg-pink-50 border-pink-300 shadow-sm' : 'border-slate-100 hover:bg-slate-50',
+                            student.isPinned ? 'student-pinned' : '',
+                            student.isImportant ? 'student-important' : ''
+                         ]">
+                        <input type="checkbox" v-model="student.selected" @click.stop class="rounded text-pink-600 focus:ring-pink-500 cursor-pointer">
+                        <div class="flex-1 flex flex-col min-w-0">
+                            <span class="font-bold text-sm truncate" :class="currentStudent && currentStudent.id === student.id ? 'text-pink-700' : 'text-slate-700'">
+                                {{ student.name || `학생 ${index + 1}` }}
+                            </span>
+                            <span class="text-[10px] font-medium" :class="student.type === '초입' ? 'text-teal-600' : 'text-indigo-600'">
+                                {{ student.type === '초입' ? '초등학교 입학' : '중학교 입학' }}
+                            </span>
+                        </div>
+                        <div class="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                            <button @click.stop="togglePin(student)" :class="student.isPinned ? 'text-rose-500' : 'text-slate-300 hover:text-rose-400'">
+                                <i class="fa-solid fa-thumbtack text-xs"></i>
+                            </button>
+                            <button @click.stop="toggleImportant(student)" :class="student.isImportant ? 'text-amber-500' : 'text-slate-300 hover:text-amber-400'">
+                                <i class="fa-solid fa-star text-xs"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <div class="flex-1 flex flex-col overflow-hidden" v-if="currentStudent">
+                <!-- Top Info Bar (UI 배치 최적화) -->
+                <div class="bg-white p-4 border-b border-slate-200 shrink-0 flex items-center justify-between shadow-sm z-10">
+                    <div class="flex items-center gap-4">
+                        <div class="flex items-center gap-2">
+                            <label class="text-xs font-bold text-slate-500">학생명</label>
+                            <input type="text" v-model="currentStudent.name" class="border border-slate-300 rounded p-1.5 text-sm font-black text-slate-800 focus:ring-1 focus:ring-pink-500 outline-none w-32">
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <label class="text-xs font-bold text-slate-500">평가기준</label>
+                            <select v-model="currentStudent.type" @change="resetMarks" class="border border-slate-300 rounded p-1.5 text-sm font-bold bg-white focus:ring-1 focus:ring-pink-500 outline-none">
+                                <option value="초입">초등학교 입학 (65문항)</option>
+                                <option value="중입">중학교 입학 (72문항)</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center gap-3">
+                        <div class="flex items-center gap-2 bg-indigo-50 border border-indigo-200 text-indigo-700 px-3 py-1.5 rounded-lg text-xs shadow-sm">
+                            <i class="fa-solid fa-lightbulb text-amber-500"></i>
+                            <span class="font-bold shrink-0">자동 붙여넣기</span>
+                            <span class="text-indigo-500 ml-1">| 평정표에서 수행정도(3개 열) 복사 후 1번 입력칸에 붙여넣으세요.</span>
+                        </div>
+                        <button @click="exportReportCSV" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm border border-emerald-700 flex items-center gap-1 shrink-0">
+                            <i class="fa-solid fa-file-csv"></i> 현재 학생 산출표 다운로드
+                        </button>
+                        <button @click="clearCurrentMarks" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm border border-slate-200 shrink-0">
+                            <i class="fa-solid fa-eraser mr-1"></i> 데이터 비우기
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Content Area: Results & Grid -->
+                <div class="flex-1 overflow-hidden flex flex-col md:flex-row">
+                    <!-- Left: Results Summary (아코디언 영역) -->
+                    <div class="w-full md:w-[38%] bg-white border-r border-slate-200 flex flex-col overflow-y-auto custom-scrollbar p-5">
+                        <h3 class="font-black text-slate-700 mb-4 flex items-center gap-2">
+                            <i class="fa-solid fa-chart-pie text-pink-500"></i> 영역별 산출 및 문항 확인
+                        </h3>
+                        <div>
+                            <div v-for="res in calculatedResults" :key="res.subDomain" class="flex flex-col mb-3">
+                                <div @click="toggleAccordion(res.subDomain)" 
+                                     class="border rounded-xl p-3 flex items-center justify-between shadow-sm cursor-pointer hover:scale-[1.02] transition-transform duration-200" 
+                                     :class="[getResultCardClass(res.result), activeAccordion === res.subDomain ? 'ring-2 ring-pink-500 scale-[1.02]' : '']">
+                                    <div class="flex flex-col">
+                                        <span class="text-[10px] font-bold opacity-70 mb-0.5">{{ res.domain }}</span>
+                                        <span class="text-sm font-black">{{ res.subDomain }}</span>
+                                    </div>
+                                    <div class="flex items-center gap-3">
+                                        <div class="text-2xl font-black w-12 text-center">{{ res.result }}</div>
+                                        <i class="fa-solid text-slate-400 text-xs transition-transform duration-300" :class="activeAccordion === res.subDomain ? 'fa-chevron-up text-pink-500' : 'fa-chevron-down'"></i>
+                                    </div>
+                                </div>
+                                <div v-if="activeAccordion === res.subDomain" class="bg-white border rounded-xl p-3 mt-1.5 shadow-sm text-[11px] text-slate-700 space-y-2 transition-all">
+                                    <div v-for="q in res.questions" :key="q.qNum" 
+                                         @click="highlightRow(q.qNum)"
+                                         class="flex items-start gap-1.5 leading-tight p-1.5 rounded transition-colors cursor-pointer"
+                                         :class="highlightedQNum === q.qNum ? 'bg-pink-100 ring-1 ring-pink-300' : 'hover:bg-slate-100'">
+                                        <span class="font-black text-pink-500 min-w-[16px]">{{ q.qNum }}.</span>
+                                        <span class="font-bold whitespace-pre-wrap">{{ q.content }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Input Grid -->
+                    <div class="flex-1 overflow-y-auto custom-scrollbar p-5 bg-slate-50 relative" id="grid-container">
+                        <table class="w-full max-w-3xl mx-auto bg-white border-collapse shadow-sm">
+                            <thead class="sticky top-0 z-10 bg-slate-100 shadow-sm text-xs text-slate-600 font-black">
+                                <tr>
+                                    <th class="border border-slate-200 py-2 px-2 w-16">대영역</th>
+                                    <th class="border border-slate-200 py-2 px-2 w-24">세부영역</th>
+                                    <th class="border border-slate-200 py-2 px-2 w-12">문항</th>
+                                    <th class="border border-slate-200 py-2 px-2 w-20 text-rose-600">X<br><span class="text-[9px] font-normal">(전반적 도움)</span></th>
+                                    <th class="border border-slate-200 py-2 px-2 w-20 text-amber-600">△<br><span class="text-[9px] font-normal">(부분적 도움)</span></th>
+                                    <th class="border border-slate-200 py-2 px-2 w-20 text-emerald-600">O<br><span class="text-[9px] font-normal">(독립적 수행)</span></th>
+                                </tr>
+                            </thead>
+                            <tbody class="text-[11px] text-center">
+                                <tr v-for="(row, idx) in currentGridInfo" :key="row.qNum" 
+                                    :id="'row-' + row.qNum" class="hover:bg-slate-50">
+                                    <td class="border border-slate-200 bg-slate-50 font-bold text-slate-500" v-if="row.showDomain" :rowspan="row.domainSpan">{{ row.domain }}</td>
+                                    <td class="border border-slate-200 font-bold transition-colors duration-300" 
+                                        :class="activeAccordion === row.subDomain ? getSubdomainResultColor(row.subDomain) : 'bg-slate-50 text-slate-600'" 
+                                        v-if="row.showSub" :rowspan="row.subSpan">
+                                        {{ row.subDomain }}
+                                    </td>
+                                    <td class="border border-slate-200 font-bold transition-colors"
+                                        :class="highlightedQNum === row.qNum ? 'highlight-cell highlight-cell-left text-pink-700' : 'bg-slate-50 text-slate-400'">
+                                        {{ row.qNum }}
+                                    </td>
+                                    <td class="cell-wrapper transition-colors" :class="highlightedQNum === row.qNum ? 'highlight-cell' : 'bg-white'">
+                                        <input type="text" v-model="currentStudent.marks[idx][0]" class="cell-input text-rose-500" @click="toggleMark(idx, 0)" @change="recordHistory" @paste="handlePaste($event, idx)">
+                                    </td>
+                                    <td class="cell-wrapper transition-colors" :class="highlightedQNum === row.qNum ? 'highlight-cell' : 'bg-white'">
+                                        <input type="text" v-model="currentStudent.marks[idx][1]" class="cell-input text-amber-500" @click="toggleMark(idx, 1)" @change="recordHistory" @paste="handlePaste($event, idx)">
+                                    </td>
+                                    <td class="cell-wrapper transition-colors" :class="highlightedQNum === row.qNum ? 'highlight-cell highlight-cell-right' : 'bg-white'">
+                                        <input type="text" v-model="currentStudent.marks[idx][2]" class="cell-input text-emerald-500" @click="toggleMark(idx, 2)" @change="recordHistory" @paste="handlePaste($event, idx)">
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div class="h-40"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- 탭 2: 전체 통계 분석 모드 -->
+        <main v-if="mainTab === 'stats'" class="flex-1 flex flex-col bg-slate-50 p-6 overflow-hidden">
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col h-full overflow-hidden">
+                <!-- 통계 컨트롤 바 -->
+                <div class="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                    <div class="flex items-center gap-4">
+                        <h2 class="font-black text-indigo-700 text-lg flex items-center gap-2">
+                            <i class="fa-solid fa-chart-column"></i> 전체 학생 통계 및 서열화
+                        </h2>
+                        <!-- 기준 학교급 선택 -->
+                        <div class="flex bg-white p-1 rounded-lg border border-slate-300 shadow-sm">
+                            <button @click="statsFilterLevel = '초입'" :class="statsFilterLevel === '초입' ? 'bg-teal-50 text-teal-700 shadow-sm font-black' : 'text-slate-500 hover:text-slate-700 font-bold'" class="px-3 py-1 rounded-md text-xs transition-all">
+                                초등학교 입학 기준
+                            </button>
+                            <button @click="statsFilterLevel = '중입'" :class="statsFilterLevel === '중입' ? 'bg-indigo-50 text-indigo-700 shadow-sm font-black' : 'text-slate-500 hover:text-slate-700 font-bold'" class="px-3 py-1 rounded-md text-xs transition-all">
+                                중학교 입학 기준
+                            </button>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 text-xs font-bold text-slate-500">
+                        <i class="fa-solid fa-circle-info text-amber-500"></i> 제목 클릭 시 3단계 정렬 (오름차순 ➔ 내림차순 ➔ 기본)
+                        <button @click="exportStatsCSV" class="ml-4 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition shadow-sm border border-indigo-700 flex items-center gap-1">
+                            <i class="fa-solid fa-download"></i> 현재 통계 다운로드 (CSV)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 통계 테이블 -->
+                <div class="flex-1 overflow-y-auto custom-scrollbar p-0">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="sticky top-0 bg-slate-100 text-xs font-black text-slate-600 border-b-2 border-slate-200 shadow-sm z-10">
+                            <tr>
+                                <th class="p-3 text-center w-16">순</th>
+                                <th class="p-3 w-40 cursor-pointer hover:bg-slate-200 transition-colors group" @click="sortBy('name')">
+                                    이름 
+                                    <span v-if="statsSortKey==='name'" class="ml-1 text-indigo-500"><i class="fa-solid" :class="statsSortOrder === 1 ? 'fa-sort-up' : 'fa-sort-down'"></i></span>
+                                    <span v-else class="ml-1 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"><i class="fa-solid fa-sort"></i></span>
+                                </th>
+                                <th class="p-3 w-28 cursor-pointer hover:bg-slate-200 transition-colors text-center group" @click="sortBy('group')">
+                                    그룹 
+                                    <span v-if="statsSortKey==='group'" class="ml-1 text-indigo-500"><i class="fa-solid" :class="statsSortOrder === 1 ? 'fa-sort-up' : 'fa-sort-down'"></i></span>
+                                    <span v-else class="ml-1 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"><i class="fa-solid fa-sort"></i></span>
+                                </th>
+                                <th class="p-3 w-28 cursor-pointer hover:bg-slate-200 transition-colors text-center text-rose-600 group" @click="sortBy('xCount')" title="소영역 단위 산출 결과의 'X' 개수">
+                                    X (1점) 
+                                    <span v-if="statsSortKey==='xCount'" class="ml-1 text-rose-500"><i class="fa-solid" :class="statsSortOrder === 1 ? 'fa-sort-up' : 'fa-sort-down'"></i></span>
+                                    <span v-else class="ml-1 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"><i class="fa-solid fa-sort"></i></span>
+                                </th>
+                                <th class="p-3 w-28 cursor-pointer hover:bg-slate-200 transition-colors text-center text-amber-600 group" @click="sortBy('yCount')" title="소영역 단위 산출 결과의 '△' 개수">
+                                    △ (2점) 
+                                    <span v-if="statsSortKey==='yCount'" class="ml-1 text-amber-500"><i class="fa-solid" :class="statsSortOrder === 1 ? 'fa-sort-up' : 'fa-sort-down'"></i></span>
+                                    <span v-else class="ml-1 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"><i class="fa-solid fa-sort"></i></span>
+                                </th>
+                                <th class="p-3 w-28 cursor-pointer hover:bg-slate-200 transition-colors text-center text-emerald-600 group" @click="sortBy('oCount')" title="소영역 단위 산출 결과의 'O' 개수">
+                                    O (3점) 
+                                    <span v-if="statsSortKey==='oCount'" class="ml-1 text-emerald-500"><i class="fa-solid" :class="statsSortOrder === 1 ? 'fa-sort-up' : 'fa-sort-down'"></i></span>
+                                    <span v-else class="ml-1 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"><i class="fa-solid fa-sort"></i></span>
+                                </th>
+                                <th class="p-3 w-32 cursor-pointer hover:bg-slate-200 transition-colors text-center text-indigo-700 group" @click="sortBy('totalScore')">
+                                    총점 
+                                    <span v-if="statsSortKey==='totalScore'" class="ml-1 text-indigo-600"><i class="fa-solid" :class="statsSortOrder === 1 ? 'fa-sort-up' : 'fa-sort-down'"></i></span>
+                                    <span v-else class="ml-1 text-indigo-300 opacity-0 group-hover:opacity-100 transition-opacity"><i class="fa-solid fa-sort"></i></span>
+                                </th>
+                                <th class="p-3">학생 메모</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-sm font-bold text-slate-700">
+                            <tr v-if="sortedStats.length === 0">
+                                <td colspan="8" class="text-center py-10 text-slate-400 font-medium">선택한 학교급의 학생 데이터가 없습니다.</td>
+                            </tr>
+                            <tr v-for="(stat, idx) in sortedStats" :key="stat.student.id" class="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                                <td class="p-3 text-center text-slate-400 font-black">{{ idx + 1 }}</td>
+                                <!-- 이름 클릭 시 Input 탭으로 전환 & 중요 마커 연동 -->
+                                <td class="p-3">
+                                    <div class="flex items-center gap-2 cursor-pointer hover:text-indigo-600 transition group" @click="goToStudent(stat.student.id)">
+                                        <span class="font-black">{{ stat.student.name || '미상' }}</span>
+                                        <button @click.stop="toggleImportant(stat.student)" :class="stat.student.isImportant ? 'text-amber-500' : 'text-slate-300 hover:text-amber-400 transition-colors'">
+                                            <i class="fa-solid fa-star text-xs"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                                <td class="p-3 text-center">
+                                    <div class="flex items-center justify-center">
+                                        <input type="text" v-model="stat.student.group" @change="recordHistory" placeholder="미지정" class="w-16 text-center text-xs py-1 px-2 rounded font-black outline-none border focus:ring-1 focus:ring-indigo-500 transition-colors" :class="getGroupColor(stat.student.group)">
+                                    </div>
+                                </td>
+                                <td class="p-3 text-center text-rose-500 bg-rose-50/30">{{ stat.x }}</td>
+                                <td class="p-3 text-center text-amber-500 bg-amber-50/30">{{ stat.y }}</td>
+                                <td class="p-3 text-center text-emerald-500 bg-emerald-50/30">{{ stat.o }}</td>
+                                <td class="p-3 text-center text-indigo-600 font-black bg-indigo-50/30 text-lg">{{ stat.totalScore }}</td>
+                                <td class="p-3">
+                                    <input type="text" v-model="stat.student.memo" @change="recordHistory" placeholder="" class="w-full bg-transparent border-b border-transparent focus:border-indigo-300 outline-none transition-colors text-xs text-slate-600">
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        const schema = {
+            "초입": [
+                { "domain": "인지", "sub": "학습준비", "count": 10, "questions": ["그림에 맞는 낱말 찾기", "연필 쥐기", "글자 모양대로 덧쓰기", "글자를 보고 따라 쓰기", "자신의 이름 쓰기", "구체물 및 반구체물 이용하여1~10까지 수 세기", "기본 도형(○,△,□)알고 구분하기", "제시된 모양과 같은 모양 찾기", "가위로 종이를 한쪽 끝에서 다른 쪽 끝까지 자르기", "정해진 곳에 풀칠하기"] },
+                { "domain": "인지", "sub": "의사소통", "count": 9, "questions": ["호명에 반응하기", "주변 사물의 이름을 듣고 알맞은 것 찾기", "소리나 몸짓으로 자신의 기분 표현하기", "동물 소리나 생활 속 소리 듣고 모방하기", "친숙한 한 음절 낱말 따라 말하기", "좋은 것과 싫은 것을 말 또는 행동으로 표현하기", "간단한 질문에 적절하게‘예’또는‘아니오’라고 대답하거나 의사 표현하기", "말하는 사람을 쳐다보기", "‘안돼’라는 말을 듣고 행동을 멈추거나 반응하기"] },
+                { "domain": "기본생활", "sub": "보행기술", "count": 9, "questions": ["친숙한 환경의 위치를 인지하고 표현하기", "혼자 앉아 있기", "혼자 서 있기\n(※워커,휠체어 등 사용 시 전반적 도움 혹은 부분적 도움 선택)", "친구나 교사의 손을 잡고 속도를 맞추어 함께 이동하기", "평지에서 보행하기", "줄을 따라서 이동하기", "화장실이나 교실 등 익숙한 장소를 스스로 찾아가기", "(경사로)오르막길이나 내리막길에서 독립적으로 보행하기", "계단 오르내리기"] },
+                { "domain": "기본생활", "sub": "신변처리", "count": 9, "questions": ["화장실 이용 의사 표현하기", "화장실 칸 안에 들어가서 문을 잠그기", "하의를 내리고 스스로 소변보기", "대변 보고 뒤처리하기", "대소변 본 후에 물 내리기", "대소변 본 후에 옷 정리하기", "비누를 이용해 손 씻기", "휴지나 수건을 사용해 손 닦기", "손이나 옷 등이 더러워졌을 때 인지하기"] },
+                { "domain": "기본생활", "sub": "식사도구 이용", "count": 9, "questions": ["컵을 사용하여 물 마시기", "빨대를 사용하여 물 마시기", "포크나 숟가락을 사용하여 음식을 입에 넣기", "젓가락을 사용하여 음식 먹기\n(에디슨 젓가락 포함)", "음식물을 흘리지 않고 먹기", "음식물을 적절하게 씹어서 삼키기", "혼자서 음식 먹기", "식판을 들고 급식 받기", "식판을 들고 자리로 이동하기"] },
+                { "domain": "기본생활", "sub": "착탈의", "count": 10, "questions": ["외투 스스로 입고 벗기", "지퍼나 단추 잠그기", "상의의 앞뒤 구분해 입기", "상의 스스로 벗기", "바지 앞뒤 구분해 입기", "바지 벗기", "양말 신고 벗기", "신발의 좌우 구분하여 신기", "신발 스스로 벗기", "모자,목도리,장갑 등 스스로 착용하기"] },
+                { "domain": "기본생활", "sub": "사회적 능력", "count": 9, "questions": ["사회적 상황에서 규칙 지키기", "다른 사람을 도와주거나 다른 사람의 도움 받기", "또래와 함께 놀기", "다른 사람에게 관심 표현하기", "자신에게 주어진 과제나 임무 수행하기", "다른 사람의 감정이나 기분 알아차리기", "사회적으로 용인된 방법과 정도로 또래에게 호감이나애정 표현하기", "집단 활동에서 차례 기다리기", "놀잇감을 또래와 나누기"] }
+            ],
+            "중입": [
+                { "domain": "인지", "sub": "학습준비", "count": 15, "questions": ["연필 쥐기", "글자 모양대로 덧쓰기", "글자를 보고 따라 쓰기", "자신의 이름 쓰기", "음절을 읽고 소리 나는 대로 쓰기", "단어 읽고 쓰기(시간표 읽기 등)", "문장 읽고 쓰기", "1~10까지 수 세기", "두 자릿수 이상 수 세기", "사칙연산 하기(+,-,×,÷)", "도형 구분하기", "도형 규칙 찾기", "시계 읽기(디지털 시계 포함)", "화폐단위 크기에 따라 배열하기\n(ex.백원,오백원,천원,오천원,만원 등)", "2,000원 이하의 금액 계산하기\n(ex. 1,000+1,000, 1,000+500등)"] },
+                { "domain": "인지", "sub": "의사소통", "count": 11, "questions": ["자신이 원하는 것을 비언어적으로 요구하기\n(ex.밖에 나가고 싶다고 손잡아 끌기)", "보완대체의사소통(AAC)을 사용하여 의사소통하기", "자신이 원하는 것을 단어로 요구하기", "자신이 원하는 것을 문장으로 요구하기", "대화의 차례 지키기", "차례를 지키며 대화를 주고받기", "주변 사물의 이름을 듣고 찾기", "지시 사항에 적절하게 행동이나 반응하기\n(ex.앉기,일어나기,쓰레기 버리기 등)", "말하는 사람을 쳐다보기", "간단한 질문에 적절하게‘예’또는‘아니오’라고 대답하거나 의사 표현하기", "다른 사람의 이야기를 듣고,자신의 생각을 언어적,비언어적으로 표현하기 등"] },
+                { "domain": "기본생활", "sub": "보행기술", "count": 10, "questions": ["친숙한 환경의 위치를 인지하고 표현하기 등\n(ex.특별실,급식실,교무실 등의 위치)", "혼자 앉아 있기", "혼자 서 있기\n(※워커,휠체어 등 사용 시 전반적 도움 혹은 부분적 도움 선택)", "평지에서 보행하기", "줄을 따라서 이동하기", "교실 내에서 자유롭게 돌아다니기", "화장실이나 교실 등 익숙한 장소를 스스로 찾아가기", "학교 내 공간에서 원하는 장소까지 이동하기", "(경사로)오르막길이나 내리막길에서 독립적으로보행하기", "계단 오르내리기"] },
+                { "domain": "기본생활", "sub": "신변처리", "count": 9, "questions": ["화장실 이용 의사 표현하기", "화장실 칸 안에 들어가서 문을 잠그기", "하의를 내리고 스스로 소변보기", "대변 보고 뒤처리하기", "대소변 본 후에 물 내리기", "대소변 본 후에 옷 정리하기", "비누를 이용해 손 씻기", "휴지나 수건을 사용해 손 닦기", "손이나 옷 등이 더러워졌을 때 인지하기"] },
+                { "domain": "기본생활", "sub": "식사도구 이용", "count": 10, "questions": ["컵을 사용하여 물 마시기", "빨대를 사용하여 물 마시기", "포크나 숟가락을 사용하여 음식을 입에 넣기", "젓가락을 사용하여 음식 먹기\n(에디슨 젓가락 포함)", "음식물을 흘리지 않고 먹기", "음식물을 적절하게 씹어서 삼키기", "혼자서 음식 먹기", "식판을 들고 급식 받기", "식판을 들고 자리로 이동하기", "크기가 큰 음식을 숟가락 등으로 자르기"] },
+                { "domain": "기본생활", "sub": "착탈의", "count": 10, "questions": ["외투 스스로 입고 벗기", "지퍼나 단추 잠그기", "상의의 앞뒤 구분해 입기", "상의 스스로 벗기", "바지 앞뒤 구분해 입기", "바지 스스로 벗기", "양말 신고 벗기", "신발(실내화)좌우 구분하여 신기", "신발(실내화)스스로 벗기", "모자,목도리,장갑 등 스스로 착용하기"] },
+                { "domain": "기본생활", "sub": "사회적 능력", "count": 7, "questions": ["사회적 상황에서 공통으로 주어진 규칙이나 약속 지키기\n(ex.수업시간에 자리에 앉거나 떠들지 않기 등)", "타인에게 도움을 주거나 도움 요청하기", "또래와 함께 활동하기", "다른 사람에게 관심 표현하기", "자신에게 주어진 과제나 임무 수행하기", "집단 활동에서 차례 기다리기", "다른 사람의 감정이나 기분 알아차리기"] }
+            ]
+        };
+
+        createApp({
+            data() {
+                return {
+                    mainTab: 'input',
+                    
+                    students: [],
+                    currentStudentId: null,
+                    selectAll: false,
+                    history: [],
+                    historyIndex: -1,
+                    isHistoryAction: false,
+                    
+                    activeAccordion: null,
+                    highlightedQNum: null,
+
+                    statsFilterLevel: '초입', 
+                    statsSortKey: 'totalScore',
+                    statsSortOrder: 1 // 1: 오름차순, -1: 내림차순
+                }
+            },
+            mounted() {
+                let saved = localStorage.getItem('a8_simulator_data') || localStorage.getItem('a7_simulator_data');
+                if (saved) {
+                    try {
+                        this.students = JSON.parse(saved);
+                        if(this.students.length > 0) {
+                            this.currentStudentId = this.students[0].id;
+                        }
+                    } catch(e) {
+                        this.initDefault();
+                    }
+                } else {
+                    this.initDefault();
+                }
+                this.recordHistory(true);
+            },
+            watch: {
+                students: {
+                    handler(newVal) {
+                        localStorage.setItem('a8_simulator_data', JSON.stringify(newVal));
+                    },
+                    deep: true
+                },
+                currentStudentId() {
+                    this.highlightedQNum = null;
+                }
+            },
+            computed: {
+                currentStudent() {
+                    return this.students.find(s => s.id === this.currentStudentId) || this.students[0];
+                },
+                sortedStudents() {
+                    return [...this.students].sort((a, b) => {
+                        if (a.isPinned === b.isPinned) return 0;
+                        return a.isPinned ? -1 : 1;
+                    });
+                },
+                selectedCount() {
+                    return this.students.filter(s => s.selected).length;
+                },
+                currentGridInfo() {
+                    if (!this.currentStudent) return [];
+                    const type = this.currentStudent.type;
+                    const sections = schema[type];
+                    const rows = [];
+                    let qNum = 1;
+                    let domainCache = {};
+
+                    sections.forEach(sec => {
+                        for (let i = 0; i < sec.count; i++) {
+                            const isFirstSub = i === 0;
+                            let isFirstDomain = false;
+                            let domainSpan = 0;
+                            if (!domainCache[sec.domain]) {
+                                isFirstDomain = true;
+                                domainSpan = sections.filter(s => s.domain === sec.domain).reduce((sum, s) => sum + s.count, 0);
+                                domainCache[sec.domain] = true;
+                            }
+
+                            rows.push({
+                                domain: sec.domain,
+                                showDomain: isFirstDomain,
+                                domainSpan: domainSpan,
+                                subDomain: sec.sub,
+                                showSub: isFirstSub,
+                                subSpan: sec.count,
+                                qNum: qNum++
+                            });
+                        }
+                    });
+                    return rows;
+                },
+                calculatedResults() {
+                    if (!this.currentStudent) return [];
+                    const results = this.evaluateSubDomains(this.currentStudent);
+                    const type = this.currentStudent.type;
+                    const sections = schema[type];
+                    let startQNum = 1;
+                    
+                    return results.map((res, index) => {
+                        const sec = sections[index];
+                        const questions = [];
+                        for (let i = 0; i < sec.count; i++) {
+                            questions.push({
+                                qNum: startQNum + i,
+                                content: sec.questions[i]
+                            });
+                        }
+                        startQNum += sec.count;
+                        return {
+                            domain: res.domain,
+                            subDomain: res.subDomain,
+                            result: res.result,
+                            questions: questions
+                        };
+                    });
+                },
+
+                calculatedStats() {
+                    const filtered = this.students.filter(s => s.type === this.statsFilterLevel);
+                    return filtered.map(student => {
+                        const subDomainResults = this.evaluateSubDomains(student);
+                        let x = 0, y = 0, o = 0;
+                        
+                        subDomainResults.forEach(res => {
+                            if (res.result === '×') x++;
+                            else if (res.result === '△') y++;
+                            else if (res.result === '○') o++;
+                        });
+
+                        return {
+                            student: student,
+                            x: x,
+                            y: y,
+                            o: o,
+                            totalScore: (x * 1) + (y * 2) + (o * 3)
+                        };
+                    });
+                },
+                
+                sortedStats() {
+                    let list = [...this.calculatedStats];
+                    const key = this.statsSortKey;
+                    const order = this.statsSortOrder;
+                    
+                    list.sort((a, b) => {
+                        let res = 0;
+                        if (key === 'totalScore') res = a.totalScore - b.totalScore;
+                        else if (key === 'name') {
+                            const nameA = a.student.name || '';
+                            const nameB = b.student.name || '';
+                            res = nameA.localeCompare(nameB);
+                        }
+                        else if (key === 'group') {
+                            const gA = parseInt(a.student.group) || 99999;
+                            const gB = parseInt(b.student.group) || 99999;
+                            res = gA - gB;
+                        }
+                        else if (key === 'xCount') res = a.x - b.x;
+                        else if (key === 'yCount') res = a.y - b.y;
+                        else if (key === 'oCount') res = a.o - b.o;
+
+                        if (res === 0) {
+                            return a.totalScore - b.totalScore;
+                        }
+                        return res * order;
+                    });
+                    return list;
+                }
+            },
+            methods: {
+                // 수정된 결과 판정 로직: 세부영역 내 문항 중 하나라도 비어있으면 '-' 처리
+                evaluateSubDomains(student) {
+                    const type = student.type;
+                    const sections = schema[type];
+                    const marks = student.marks;
+                    const results = [];
+                    let rowCursor = 0;
+
+                    sections.forEach(sec => {
+                        let count1 = 0; 
+                        let count2 = 0; 
+                        let count3 = 0; 
+                        let isComplete = true;
+                        
+                        for (let i = 0; i < sec.count; i++) {
+                            const row = marks[rowCursor];
+                            const m1 = this.hasMark(row[0]);
+                            const m2 = this.hasMark(row[1]);
+                            const m3 = this.hasMark(row[2]);
+                            
+                            if (m1) count1++;
+                            if (m2) count2++;
+                            if (m3) count3++;
+                            
+                            // 해당 문항에 마킹이 하나도 없으면 미완료 처리
+                            if (!m1 && !m2 && !m3) {
+                                isComplete = false;
+                            }
+                            rowCursor++;
+                        }
+
+                        let finalMark = '-';
+
+                        if (isComplete) {
+                            const sum23 = count2 + count3;
+                            if (sum23 <= 2) finalMark = '×';
+                            else if (sum23 >= 3 && sum23 <= 5) finalMark = '△';
+                            else if (sum23 >= 6) {
+                                if (count3 > count2) finalMark = '○';
+                                else if (count2 > count3) finalMark = '△';
+                                else finalMark = '조정 필요';
+                            }
+                        }
+                        results.push({
+                            domain: sec.domain,
+                            subDomain: sec.sub,
+                            result: finalMark
+                        });
+                    });
+                    return results;
+                },
+
+                goToStudent(id) {
+                    this.currentStudentId = id;
+                    this.mainTab = 'input';
+                },
+
+                sortBy(key) {
+                    if (this.statsSortKey === key) {
+                        if (this.statsSortOrder === 1) {
+                            this.statsSortOrder = -1; 
+                        } else {
+                            this.statsSortKey = 'totalScore';
+                            this.statsSortOrder = 1;
+                        }
+                    } else {
+                        this.statsSortKey = key;
+                        this.statsSortOrder = 1; 
+                    }
+                },
+                
+                getGroupColor(groupVal) {
+                    if (!groupVal || groupVal.trim() === '') return 'bg-white text-slate-500 border-slate-200';
+                    const num = parseInt(groupVal, 10);
+                    if (isNaN(num)) return 'bg-gray-100 text-gray-700 border-gray-300';
+                    const colors = [
+                        'bg-red-100 text-red-700 border-red-300',
+                        'bg-blue-100 text-blue-700 border-blue-300',
+                        'bg-emerald-100 text-emerald-700 border-emerald-300',
+                        'bg-amber-100 text-amber-700 border-amber-300',
+                        'bg-purple-100 text-purple-700 border-purple-300',
+                        'bg-pink-100 text-pink-700 border-pink-300',
+                        'bg-indigo-100 text-indigo-700 border-indigo-300',
+                        'bg-teal-100 text-teal-700 border-teal-300',
+                        'bg-orange-100 text-orange-700 border-orange-300',
+                        'bg-cyan-100 text-cyan-700 border-cyan-300'
+                    ];
+                    return colors[num % 10];
+                },
+                
+                getSubdomainResultColor(subDomain) {
+                    const res = this.calculatedResults.find(r => r.subDomain === subDomain);
+                    if (!res) return 'bg-slate-50 text-slate-600';
+                    if (res.result === '○') return 'bg-emerald-100 border-emerald-300 text-emerald-800';
+                    if (res.result === '△') return 'bg-amber-100 border-amber-300 text-amber-800';
+                    if (res.result === '×') return 'bg-rose-100 border-rose-300 text-rose-800';
+                    if (res.result === '조정 필요') return 'bg-purple-100 border-purple-300 text-purple-800';
+                    return 'bg-slate-50 text-slate-600';
+                },
+
+                highlightRow(qNum) {
+                    if (this.highlightedQNum === qNum) {
+                        this.highlightedQNum = null;
+                    } else {
+                        this.highlightedQNum = qNum;
+                        this.$nextTick(() => {
+                            const el = document.getElementById('row-' + qNum);
+                            const container = document.getElementById('grid-container');
+                            if (el && container) {
+                                const elTop = el.offsetTop;
+                                const elHeight = el.offsetHeight;
+                                const containerHeight = container.clientHeight;
+                                container.scrollTo({
+                                    top: elTop - (containerHeight / 2) + (elHeight / 2),
+                                    behavior: 'smooth'
+                                });
+                            }
+                        });
+                    }
+                },
+                toggleAccordion(subDomain) {
+                    this.activeAccordion = this.activeAccordion === subDomain ? null : subDomain;
+                },
+                recordHistory(isInit = false) {
+                    if (this.isHistoryAction) {
+                        this.isHistoryAction = false;
+                        return;
+                    }
+                    if (!isInit) {
+                        this.history = this.history.slice(0, this.historyIndex + 1);
+                    }
+                    this.history.push(JSON.stringify(this.students));
+                    this.historyIndex++;
+                },
+                undo() {
+                    if (this.historyIndex > 0) {
+                        this.isHistoryAction = true;
+                        this.historyIndex--;
+                        this.students = JSON.parse(this.history[this.historyIndex]);
+                        this.ensureCurrentStudentExists();
+                    }
+                },
+                redo() {
+                    if (this.historyIndex < this.history.length - 1) {
+                        this.isHistoryAction = true;
+                        this.historyIndex++;
+                        this.students = JSON.parse(this.history[this.historyIndex]);
+                        this.ensureCurrentStudentExists();
+                    }
+                },
+                ensureCurrentStudentExists() {
+                    if (!this.students.find(s => s.id === this.currentStudentId) && this.students.length > 0) {
+                        this.currentStudentId = this.students[0].id;
+                    }
+                },
+                initDefault() {
+                    this.students = [];
+                    this.addStudent();
+                },
+                getTotalQuestions(type) {
+                    return schema[type].reduce((sum, sec) => sum + sec.count, 0);
+                },
+                createEmptyMarks(type) {
+                    const total = this.getTotalQuestions(type);
+                    return Array(total).fill().map(() => ['', '', '']);
+                },
+                addStudent() {
+                    const type = '초입';
+                    const newId = 'std_' + Date.now();
+                    this.students.push({
+                        id: newId,
+                        name: '',
+                        type: type,
+                        group: '', 
+                        memo: '',  
+                        marks: this.createEmptyMarks(type),
+                        isPinned: false,
+                        isImportant: false,
+                        selected: false
+                    });
+                    this.currentStudentId = newId;
+                    this.recordHistory();
+                },
+                selectStudent(id) {
+                    this.currentStudentId = id;
+                },
+                toggleSelectAll() {
+                    this.students.forEach(s => s.selected = this.selectAll);
+                },
+                deleteSelected() {
+                    if (confirm(`선택한 ${this.selectedCount}명의 학생 데이터를 삭제하시겠습니까?`)) {
+                        this.students = this.students.filter(s => !s.selected);
+                        this.selectAll = false;
+                        if (this.students.length === 0) this.addStudent();
+                        else this.ensureCurrentStudentExists();
+                        this.recordHistory();
+                    }
+                },
+                togglePin(student) {
+                    student.isPinned = !student.isPinned;
+                    this.recordHistory();
+                },
+                toggleImportant(student) {
+                    student.isImportant = !student.isImportant;
+                    this.recordHistory();
+                },
+                resetMarks() {
+                    if (confirm('학교급을 변경하면 현재 입력된 데이터가 모두 초기화됩니다. 변경하시겠습니까?')) {
+                        this.currentStudent.marks = this.createEmptyMarks(this.currentStudent.type);
+                        this.highlightedQNum = null;
+                        this.recordHistory();
+                    }
+                },
+                clearCurrentMarks() {
+                    if (confirm('현재 학생의 모든 입력 데이터를 지우시겠습니까?')) {
+                        this.currentStudent.marks = this.createEmptyMarks(this.currentStudent.type);
+                        this.recordHistory();
+                    }
+                },
+                hasMark(val) {
+                    if (val === null || val === undefined) return false;
+                    return String(val).trim().length > 0;
+                },
+                toggleMark(r, c) {
+                    const current = this.currentStudent.marks[r][c];
+                    if (this.hasMark(current)) {
+                        if (current.toUpperCase() === 'V') {
+                            this.currentStudent.marks[r][c] = '';
+                            this.recordHistory();
+                        }
+                    } else {
+                        this.currentStudent.marks[r] = ['', '', '']; 
+                        this.currentStudent.marks[r][c] = 'V';
+                        this.recordHistory();
+                    }
+                },
+                handlePaste(event, startRowIdx) {
+                    event.preventDefault(); 
+                    const text = (event.clipboardData || window.clipboardData).getData('text');
+                    if (!text) return;
+
+                    let lines = text.replace(/\r/g, '').split('\n');
+                    let parsedRows = [];
+
+                    if (text.includes('\t')) {
+                        for (let line of lines) {
+                            if (line.trim() === '' && !line.includes('\t')) continue;
+                            let cols = line.split('\t');
+                            parsedRows.push({
+                                c0: this.cleanData(cols[0]),
+                                c1: this.cleanData(cols[1]),
+                                c2: this.cleanData(cols[2])
+                            });
+                        }
+                    } 
+                    else {
+                        if (lines.length > 0 && lines[0].trim() === '') lines.shift();
+                        if (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
+
+                        for (let i = 0; i < lines.length; i += 3) {
+                            parsedRows.push({
+                                c0: this.cleanData(lines[i]),
+                                c1: this.cleanData(lines[i+1]),
+                                c2: this.cleanData(lines[i+2])
+                            });
+                        }
+                    }
+
+                    let currentRow = startRowIdx;
+                    let appliedCount = 0;
+                    const maxRows = this.currentStudent.marks.length;
+
+                    for (let row of parsedRows) {
+                        if (currentRow >= maxRows) break;
+                        
+                        if (!row.c0 && !row.c1 && !row.c2) {
+                            currentRow++;
+                            continue;
+                        }
+
+                        this.currentStudent.marks[currentRow] = [row.c0, row.c1, row.c2];
+                        currentRow++;
+                        appliedCount++;
+                    }
+
+                    this.recordHistory();
+                    if (appliedCount > 0) {
+                        alert(`선택한 위치부터 ${appliedCount}개 문항의 데이터가 깔끔하게 자동 맵핑되었습니다.`);
+                    }
+                },
+                cleanData(str) {
+                    if (!str) return '';
+                    const cleaned = str.replace(/[\u200B-\u200D\uFEFF\u00A0\s]/g, '').trim();
+                    if (cleaned.length === 0) return '';
+                    
+                    const upper = cleaned.toUpperCase();
+                    if (['V', 'O', '○', '☑', '✓', '√', '0'].includes(upper)) {
+                        return 'V';
+                    }
+                    return cleaned; 
+                },
+                getResultCardClass(result) {
+                    if (result === '○') return 'bg-emerald-50 border-emerald-200 text-emerald-700';
+                    if (result === '△') return 'bg-amber-50 border-amber-200 text-amber-700';
+                    if (result === '×') return 'bg-rose-50 border-rose-200 text-rose-700';
+                    if (result === '조정 필요') return 'bg-purple-50 border-purple-200 text-purple-700';
+                    return 'bg-slate-50 border-slate-200 text-slate-400';
+                },
+
+                exportBackupCSV() {
+                    const rows = [];
+                    const header = ["학생ID", "이름", "평가기준", "그룹", "메모", "고정여부", "중요여부"];
+                    for (let i = 1; i <= 72; i++) {
+                        header.push(`${i}번_전반적`, `${i}번_부분적`, `${i}번_독립적`);
+                    }
+                    rows.push(header);
+
+                    this.students.forEach(s => {
+                        const row = [s.id, s.name, s.type, (s.group || ''), (s.memo || ''), s.isPinned ? 'O' : 'X', s.isImportant ? 'O' : 'X'];
+                        for (let i = 0; i < 72; i++) {
+                            if (s.marks[i]) {
+                                row.push(s.marks[i][0] || "", s.marks[i][1] || "", s.marks[i][2] || "");
+                            } else {
+                                row.push("", "", "");
+                            }
+                        }
+                        rows.push(row);
+                    });
+
+                    const csvContent = "\uFEFF" + Papa.unparse(rows);
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const link = document.createElement("a");
+                    link.href = URL.createObjectURL(blob);
+                    link.setAttribute("download", `행동평정_전체학생백업_${Date.now()}.csv`);
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                },
+
+                importBackupCSV(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+
+                    Papa.parse(file, {
+                        skipEmptyLines: true,
+                        complete: (results) => {
+                            try {
+                                const data = results.data;
+                                if (data.length < 2) throw new Error("데이터가 너무 적습니다.");
+                                if (data[0][0] !== "학생ID") throw new Error("올바른 백업 파일(CSV) 양식이 아닙니다.");
+
+                                const headerRow = data[0];
+                                const groupIdx = headerRow.indexOf('그룹');
+                                const memoIdx = headerRow.indexOf('메모');
+                                const markStartIdx = headerRow.findIndex(h => h && h.includes('1번_전반적'));
+                                
+                                if (markStartIdx === -1) throw new Error("문항 데이터 열을 찾을 수 없습니다.");
+
+                                const newStudents = [];
+                                for (let r = 1; r < data.length; r++) {
+                                    const row = data[r];
+                                    if(!row[0]) continue; 
+                                    
+                                    const type = row[2] === '중입' ? '중입' : '초입';
+                                    const totalQ = type === '중입' ? 72 : 65;
+                                    const marks = Array(72).fill().map(() => ['', '', '']);
+                                    
+                                    for (let i = 0; i < totalQ; i++) {
+                                        const colStart = markStartIdx + (i * 3);
+                                        if (colStart + 2 < row.length) {
+                                            marks[i] = [row[colStart] || '', row[colStart+1] || '', row[colStart+2] || ''];
+                                        }
+                                    }
+
+                                    newStudents.push({
+                                        id: row[0],
+                                        name: row[1] || '',
+                                        type: type,
+                                        group: groupIdx > -1 ? (row[groupIdx] || '') : '',
+                                        memo: memoIdx > -1 ? (row[memoIdx] || '') : '',
+                                        isPinned: row[markStartIdx - 2] === 'O', 
+                                        isImportant: row[markStartIdx - 1] === 'O',
+                                        selected: false,
+                                        marks: marks
+                                    });
+                                }
+
+                                if (newStudents.length > 0) {
+                                    this.students = newStudents;
+                                    this.currentStudentId = this.students[0].id;
+                                    this.recordHistory(true);
+                                    alert('전체 학생 백업 데이터가 성공적으로 복원되었습니다.');
+                                } else {
+                                    alert('학생 데이터가 없습니다.');
+                                }
+                            } catch (e) {
+                                alert('파일 불러오기 실패: ' + e.message);
+                            } finally {
+                                event.target.value = ''; 
+                            }
+                        }
+                    });
+                },
+
+                exportReportCSV() {
+                    if (!this.currentStudent) return;
+                    
+                    let csvContent = "\uFEFF"; 
+                    csvContent += "학생명,평가기준\n";
+                    csvContent += `${this.currentStudent.name || '미상'},${this.currentStudent.type}\n\n`;
+                    csvContent += "대영역,세부영역,문항번호,전반적도움(1점),부분적도움(2점),독립적수행(3점)\n";
+                    
+                    this.currentGridInfo.forEach((row, idx) => {
+                        const marks = this.currentStudent.marks[idx];
+                        const m0 = marks[0] ? `"${marks[0]}"` : "";
+                        const m1 = marks[1] ? `"${marks[1]}"` : "";
+                        const m2 = marks[2] ? `"${marks[2]}"` : "";
+                        csvContent += `"${row.domain}","${row.subDomain}",${row.qNum},${m0},${m1},${m2}\n`;
+                    });
+
+                    csvContent += "\n영역별 산출 결과\n대영역,세부영역,결과\n";
+                    this.calculatedResults.forEach(res => {
+                        csvContent += `"${res.domain}","${res.subDomain}","${res.result}"\n`;
+                    });
+
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const link = document.createElement("a");
+                    const url = URL.createObjectURL(blob);
+                    link.setAttribute("href", url);
+                    link.setAttribute("download", `행동평정_산출보고서_${this.currentStudent.name || '학생'}.csv`);
+                    link.style.visibility = 'hidden';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                },
+
+                exportStatsCSV() {
+                    const rows = [["순", "이름", "그룹", "X(1점)", "△(2점)", "O(3점)", "총점", "학생 메모"]];
+                    this.sortedStats.forEach((stat, idx) => {
+                        rows.push([
+                            idx + 1,
+                            stat.student.name || '미상',
+                            stat.student.group || '',
+                            stat.x,
+                            stat.y,
+                            stat.o,
+                            stat.totalScore,
+                            stat.student.memo || ''
+                        ]);
+                    });
+
+                    const csvContent = "\uFEFF" + Papa.unparse(rows);
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const link = document.createElement("a");
+                    link.href = URL.createObjectURL(blob);
+                    link.setAttribute("download", `행동평정_전체통계_${this.statsFilterLevel}_${Date.now()}.csv`);
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
